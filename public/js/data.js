@@ -1,6 +1,9 @@
 // data.js - Работа с данными Firestore
 console.log('📊 Загрузка модуля данных...');
 
+// Получить Firebase instance для использования в FieldValue вызовах
+const firebase = typeof window !== 'undefined' ? window.firebase : null;
+
 // Категории транзакций
 const CATEGORIES = {
     income: [
@@ -52,7 +55,7 @@ async function updateTask(taskId, updateData) {
         
         await db.collection('tasks').doc(taskId).update({
             ...updateData,
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         console.log('📝 Задача обновлена:', taskId);
@@ -127,7 +130,7 @@ async function updateGoal(goalId, updateData) {
         
         await db.collection('goals').doc(goalId).update({
             ...updateData,
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         console.log('🎯 Цель обновлена:', goalId);
@@ -158,8 +161,8 @@ async function addTransaction(transactionData) {
         const transaction = {
             ...transactionData,
             userId: user.uid,
-            createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
         const docRef = await db.collection('transactions').add(transaction);
@@ -257,8 +260,8 @@ async function addGoal(goalData) {
             ...goalData,
             userId: user.uid,
             progress: (goalData.current / goalData.target) * 100,
-            createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
         const docRef = await db.collection('goals').add(goal);
@@ -320,8 +323,8 @@ async function addTask(taskData) {
             ...taskData,
             userId: user.uid,
             completed: false,
-            createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
         const docRef = await db.collection('tasks').add(task);

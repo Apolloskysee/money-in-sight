@@ -177,9 +177,10 @@ async function handleVerificationSubmit(e) {
         }
 
         // Code is correct! Mark email as verified
+        const firebase = window.firebase;
         await db.collection('users').doc(userId).update({
             emailVerified: true,
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         // Delete the code
@@ -221,5 +222,6 @@ window.openEmailVerificationModal = openEmailVerificationModal;
 window.closeEmailVerificationModal = closeEmailVerificationModal;
 window.resendVerificationCode = resendVerificationCode;
 window.goBackToRegistration = goBackToRegistration;
+window.handleVerificationSubmit = handleVerificationSubmit;
 
 console.log('✅ Email verification helpers loaded');

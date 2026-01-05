@@ -1059,40 +1059,65 @@ async function deleteAccount() {
         
         showNotification('Удаление аккаунта...', 'info');
         
-        // Delete user data from Firestore
+        // Delete user data from Firestore using a single batch operation
         if (db && window.firebase && window.firebase.firestore) {
+            // Create a single batch for all deletions
+            const batch = db.batch();
+            
             // Delete user document
-            await db.collection('users').doc(user.uid).delete();
+            batch.delete(db.collection('users').doc(user.uid));
             
             // Delete transactions
             const transactionsSnap = await db.collection('transactions').where('userId', '==', user.uid).get();
-            const batch = db.batch();
             transactionsSnap.docs.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
             
             // Delete goals
             const goalsSnap = await db.collection('goals').where('userId', '==', user.uid).get();
-            const batch2 = db.batch();
-            goalsSnap.docs.forEach(doc => batch2.delete(doc.ref));
-            await batch2.commit();
+            goalsSnap.docs.forEach(doc => batch.delete(doc.ref));
             
             // Delete tasks
             const tasksSnap = await db.collection('tasks').where('userId', '==', user.uid).get();
-            const batch3 = db.batch();
-            tasksSnap.docs.forEach(doc => batch3.delete(doc.ref));
-            await batch3.commit();
+            tasksSnap.docs.forEach(doc => batch.delete(doc.ref));
+            
+            // Delete verification codes if any
+            const codesSnap = await db.collection('verificationCodes').where('userId', '==', user.uid).get();
+            codesSnap.docs.forEach(doc => batch.delete(doc.ref));
+            
+            // Commit all deletions at once
+            await batch.commit();
         }
         
-        // Delete user from Firebase Auth
-        await user.delete();
+        // Delete user from Firebase Auth - MUST be done AFTER Firestore deletion
+        // because after this point we lose access to Firestore with user's permissions
+        try {
+            await user.delete();
+        } catch (authError) {
+            // If user.delete() fails due to reauthentication requirement, 
+            // try to delete via Netlify function instead
+            if (authError.code === 'auth/requires-recent-login') {
+                console.warn('Требуется повторная аутентификация. Удалю через серверную функцию.');
+                const response = await fetch('/.netlify/functions/delete-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: user.uid, email: user.email })
+                });
+                if (!response.ok) throw new Error(`Ошибка удаления: ${response.statusText}`);
+            } else {
+                throw authError;
+            }
+        }
         
         showNotification('Аккаунт успешно удален', 'success');
         closeModal('deleteAccountModal');
         
         // Logout and return to welcome
-        if (window.Auth?.logoutUser) {
-            await window.Auth.logoutUser();
-        }
+        setTimeout(() => {
+            if (window.Auth?.logoutUser) {
+                window.Auth.logoutUser();
+            } else {
+                window.location.href = '/';
+            }
+        }, 1000);
         
     } catch (error) {
         console.error('Ошибка удаления аккаунта:', error);
@@ -1100,6 +1125,22 @@ async function deleteAccount() {
     }
 }
 
+// Функции для модальных окон с условиями обслуживания
+function showTermsModal() {
+    openModal('termsModal');
+}
+
+function showPrivacyModal() {
+    openModal('privacyModal');
+}
+
+function showOfferModal() {
+    openModal('offerModal');
+}
+
+function showRefundModal() {
+    openModal('refundModal');
+}
 
 // Экспорт функций
 window.UI = {
@@ -1117,12 +1158,18 @@ window.UI = {
     showAddTransactionModal: () => openModal('addTransactionModal'),
     showAddGoalModal: () => openModal('addGoalModal'),
     showAddTaskModal: () => openModal('addTaskModal'),
-    showAddDebtModal: () => openModal('addDebtModal'), // ДОБАВЬТЕ ЭТУ СТРОЧКУ
+    showAddDebtModal: () => openModal('addDebtModal'),
     editField,
     toggleTask,
     deleteTask,
     editGoal,
     deleteGoal,
     editTransaction,
-    handleLogout
+    handleLogout,
+    showTermsModal,
+    showPrivacyModal,
+    showOfferModal,
+    showRefundModal,
+    showDeleteAccountModal,
+    deleteAccount
 };
