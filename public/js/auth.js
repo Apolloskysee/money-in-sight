@@ -152,9 +152,10 @@ async function loginUser(email, password) {
         }
         
         const firebase = window.firebase;
-        await db.collection('users').doc(user.uid).update({
+        // Use set with merge to avoid "No document to update" when user doc doesn't exist
+        await db.collection('users').doc(user.uid).set({
             lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        }, { merge: true });
         
         console.log('✅ Пользователь вошел:', user.uid);
         return { success: true, user };
