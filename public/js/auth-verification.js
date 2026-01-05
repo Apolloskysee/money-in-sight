@@ -45,6 +45,13 @@ function closeEmailVerificationModal() {
     if (verificationCountdownInterval) clearInterval(verificationCountdownInterval);
 }
 
+function goBackToRegistration() {
+    closeEmailVerificationModal();
+    if (window.UI && typeof window.UI.openModal === 'function') {
+        window.UI.openModal('registerModal');
+    }
+}
+
 async function resendVerificationCode() {
     try {
         const services = window.firebaseApp.getFirebaseServices();
@@ -115,5 +122,6 @@ async function handleVerificationSubmit(e) {
 window.openEmailVerificationModal = openEmailVerificationModal;
 window.closeEmailVerificationModal = closeEmailVerificationModal;
 window.resendVerificationCode = resendVerificationCode;
+window.goBackToRegistration = goBackToRegistration;
 
 console.log('✅ Email verification helpers loaded');

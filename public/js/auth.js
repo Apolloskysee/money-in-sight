@@ -18,21 +18,7 @@ async function initializeAuth() {
             if (user) {
                 console.log('👤 Пользователь вошел:', user.email);
 
-                // Если почта не подтверждена — показываем модалку подтверждения и не открываем приложение
-                if (!user.emailVerified) {
-                    try { await updateUserProfile(user); } catch (e) { console.error('Ошибка обновления профиля перед показом модалки', e); }
-
-                    if (typeof openEmailVerificationModal === 'function') {
-                        openEmailVerificationModal(user.email);
-                    } else {
-                        console.warn('openEmailVerificationModal не определён');
-                    }
-
-                    // Не открываем основной интерфейс до подтверждения
-                    return;
-                }
-
-                // Email подтверждён — продолжаем как обычно
+                // Продолжаем сразу, без проверки emailVerified
                 await updateUserProfile(user);
                 showApp();
 
