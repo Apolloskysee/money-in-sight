@@ -85,22 +85,13 @@ async function registerUser(name, email, password) {
         // Генерируем код подтверждения (6 цифр)
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         
-        // Сохраняем код в Firestore с временем истечения (10 минут)
+        // Сохраняем код истечения на клиенте и отправляем запрос серверу для отправки email
         const codeExpiresAt = new Date();
         codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
-        
-        await db.collection('verificationCodes').doc(user.uid).set({
-            code: verificationCode,
-            email: email,
-            userId: user.uid,
-            expiresAt: codeExpiresAt.toISOString(),
-            attempts: 0,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
+
         console.log('✅ Код подтверждения сгенерирован');
-        
-        // Отправляем код на почту через EmailJS
+
+        // Отправляем код и информацию на серверную функцию для отправки письма
         try {
             const response = await fetch('/.netlify/functions/send-email', {
                 method: 'POST',
@@ -109,14 +100,17 @@ async function registerUser(name, email, password) {
                     to_email: email,
                     user_name: name,
                     verification_code: verificationCode,
+                    user_id: user.uid,
+                    expires_at: codeExpiresAt.toISOString(),
                     type: 'registration'
                 })
             });
-            
+
             if (response.ok) {
-                console.log('✅ Код отправлен на почту');
+                console.log('✅ Код отправлен на почту (через сервер)');
             } else {
-                console.warn('⚠️ Ошибка отправки кода:', response.status);
+                const txt = await response.text();
+                console.warn('⚠️ Ошибка отправки кода (сервер):', response.status, txt);
             }
         } catch (emailError) {
             console.error('⚠️ Ошибка при отправке email:', emailError);

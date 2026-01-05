@@ -99,6 +99,40 @@ exports.handler = async function(event, context) {
 
         console.log('Email sent successfully to:', to_email);
 
+        // If service account is configured, write verification code to Firestore via Admin SDK
+        try {
+            const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+            if (serviceAccountJson) {
+                const admin = require('firebase-admin');
+                if (!admin.apps.length) {
+                    admin.initializeApp({
+                        credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
+                        databaseURL: process.env.FIREBASE_DATABASE_URL
+                    });
+                }
+                const db = admin.firestore();
+
+                // If client passed user_id and expires_at, create verification doc
+                if (verification_code && JSON.parse(event.body || '{}').user_id) {
+                    const body = JSON.parse(event.body || '{}');
+                    const userId = body.user_id;
+                    const expiresAt = body.expires_at || null;
+
+                    await db.collection('verificationCodes').doc(userId).set({
+                        code: verification_code,
+                        email: to_email,
+                        userId: userId,
+                        expiresAt: expiresAt,
+                        attempts: 0,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    console.log('Verification code stored in Firestore for user:', userId);
+                }
+            }
+        } catch (storeErr) {
+            console.error('Failed to store verification code server-side:', storeErr);
+        }
+
         return {
             statusCode: 200,
             headers,
