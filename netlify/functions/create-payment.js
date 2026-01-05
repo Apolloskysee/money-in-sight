@@ -112,8 +112,8 @@ exports.handler = async function(event, context) {
             }
         };
 
-        // Выбор метода оплаты - только YooMoney
-        paymentData.payment_method_data = { type: 'yoo_money' };
+        // Yookassa API v3 не требует явного указания payment_method_data для типа bank_card
+        // Он автоматически использует доступные методы оплаты
 
         const idempotenceKey = uuidv4();
         const auth = Buffer.from(`${process.env.YOOMONEY_SHOP_ID}:${process.env.YOOMONEY_SECRET_KEY}`).toString('base64');
