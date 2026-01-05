@@ -9,14 +9,15 @@ async function initializeApp() {
         // Инициализируем Firebase
         await window.firebaseApp.initializeFirebase();
         
+        // Инициализируем UI (делаем это до аутентификации, чтобы обновления профиля
+        // могли безопасно работать с DOM-элементами сразу при входе)
+        window.UI.initializeUI();
+
         // Инициализируем аутентификацию
         await window.Auth.initializeAuth();
-        
+
         // Инициализируем платежную систему
         await window.Payments.initializePayments();
-        
-        // Инициализируем UI
-        window.UI.initializeUI();
         
         // Настраиваем глобальные обработчики
         setupGlobalHandlers();

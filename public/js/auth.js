@@ -17,8 +17,16 @@ async function initializeAuth() {
             
             if (user) {
                 console.log('👤 Пользователь вошел:', user.email);
-                await updateUserProfile(user);
-                showApp();
+                    await updateUserProfile(user);
+                    showApp();
+
+                    // После входа загружаем данные приложения (дашборд, профиль и т.д.)
+                    if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                        try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после входа', e); }
+                    }
+                    if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                        try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля после входа', e); }
+                    }
             } else {
                 console.log('🚪 Пользователь вышел');
                 showWelcome();
@@ -55,13 +63,18 @@ async function registerUser(name, email, password) {
             throw new Error('Firebase Firestore не инициализирован');
         }
         
+        // Устанавливаем пробную подписку на 14 дней при регистрации
+        const trialEnd = new Date();
+        trialEnd.setDate(trialEnd.getDate() + 14);
+
         await db.collection('users').doc(user.uid).set({
             uid: user.uid,
             name: name,
             email: email,
             emailVerified: false,
-            subscription: 'free',
-            subscriptionActive: false,
+            subscription: 'trial',
+            trialEndDate: trialEnd.toISOString(),
+            subscriptionActive: true,
             createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             lastLogin: window.firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -172,13 +185,42 @@ function updateSubscriptionStatus(userData) {
     const subscriptionStatusMain = document.getElementById('subscriptionStatus');
     
     if (!userData.subscription) return;
-    
+
+    // Если был триал и он истек — переводим на free локально и пытаемся обновить Firestore
+    if (userData.subscription === 'trial' && userData.trialEndDate) {
+        try {
+            const now = new Date();
+            const end = new Date(userData.trialEndDate);
+            if (end < now) {
+                // Обновляем локально
+                userData.subscription = 'free';
+                userData.subscriptionActive = false;
+
+                // Пытаемся обновить в Firestore, если есть доступ
+                if (window.firebase && window.firebase.firestore && window.Auth && window.Auth.getCurrentUser) {
+                    const user = window.Auth.getCurrentUser();
+                    if (user) {
+                        const { db } = window.firebaseApp.getFirebaseServices();
+                        db.collection('users').doc(user.uid).update({
+                            subscription: 'free',
+                            subscriptionActive: false,
+                            trialEndDate: null,
+                            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                        }).catch(err => console.warn('Не удалось обновить статус подписки в Firestore:', err));
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Ошибка при проверке окончания триала:', e);
+        }
+    }
+
     const statusHtml = `
         <div class="subscription-info">
             <h4>Текущий план: <span class="subscription-badge ${userData.subscription}">
-                ${userData.subscription === 'premium' ? 'Премиум' : 'Бесплатный'}
+                ${userData.subscription === 'premium' ? 'Премиум' : userData.subscription === 'trial' ? 'Пробный Премиум' : 'Бесплатный'}
             </span></h4>
-            ${userData.subscription === 'trial' ? 
+            ${userData.subscription === 'trial' && userData.trialEndDate ? 
                 `<p>Пробный период до: ${new Date(userData.trialEndDate).toLocaleDateString('ru-RU')}</p>` : 
                 ''}
             ${userData.subscription === 'premium' ? 
@@ -186,7 +228,7 @@ function updateSubscriptionStatus(userData) {
                 ''}
         </div>
     `;
-    
+
     if (subscriptionStatus) subscriptionStatus.innerHTML = statusHtml;
     if (subscriptionStatusMain) subscriptionStatusMain.innerHTML = statusHtml;
 }
