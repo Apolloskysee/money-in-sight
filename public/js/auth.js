@@ -14,19 +14,35 @@ async function initializeAuth() {
         // Слушатель изменения состояния аутентификации
         auth.onAuthStateChanged(async (user) => {
             currentUser = user;
-            
+
             if (user) {
                 console.log('👤 Пользователь вошел:', user.email);
-                    await updateUserProfile(user);
-                    showApp();
 
-                    // После входа загружаем данные приложения (дашборд, профиль и т.д.)
-                    if (window.UI && typeof window.UI.loadDashboardData === 'function') {
-                        try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после входа', e); }
+                // Если почта не подтверждена — показываем модалку подтверждения и не открываем приложение
+                if (!user.emailVerified) {
+                    try { await updateUserProfile(user); } catch (e) { console.error('Ошибка обновления профиля перед показом модалки', e); }
+
+                    if (typeof openEmailVerificationModal === 'function') {
+                        openEmailVerificationModal(user.email);
+                    } else {
+                        console.warn('openEmailVerificationModal не определён');
                     }
-                    if (window.UI && typeof window.UI.loadProfileData === 'function') {
-                        try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля после входа', e); }
-                    }
+
+                    // Не открываем основной интерфейс до подтверждения
+                    return;
+                }
+
+                // Email подтверждён — продолжаем как обычно
+                await updateUserProfile(user);
+                showApp();
+
+                // После входа загружаем данные приложения (дашборд, профиль и т.д.)
+                if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                    try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после входа', e); }
+                }
+                if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                    try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля после входа', e); }
+                }
             } else {
                 console.log('🚪 Пользователь вышел');
                 showWelcome();
