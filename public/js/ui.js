@@ -1019,6 +1019,88 @@ function handleDebtSubmit(e) {
 }
 
 
+// Показ модали удаления аккаунта
+function showDeleteAccountModal() {
+    const modal = document.getElementById('deleteAccountModal');
+    if (!modal) return;
+    
+    modal.style.display = 'block';
+    
+    // Setup confirmation checkbox handler
+    const confirmCheckbox = document.getElementById('confirmDelete');
+    const confirmEmailInput = document.getElementById('confirmEmail');
+    const deleteBtn = document.getElementById('deleteAccountBtn');
+    
+    const updateDeleteBtn = () => {
+        const emailMatch = confirmEmailInput && confirmEmailInput.value.trim() === (window.Auth?.getCurrentUser?.()?.email || '');
+        const confirmed = confirmCheckbox && confirmCheckbox.checked;
+        if (deleteBtn) deleteBtn.disabled = !(emailMatch && confirmed);
+    };
+    
+    if (confirmCheckbox) confirmCheckbox.addEventListener('change', updateDeleteBtn);
+    if (confirmEmailInput) confirmEmailInput.addEventListener('input', updateDeleteBtn);
+}
+
+// Удаление аккаунта
+async function deleteAccount() {
+    try {
+        const user = window.Auth?.getCurrentUser?.();
+        if (!user) throw new Error('Пользователь не авторизован');
+        
+        const confirmEmailInput = document.getElementById('confirmEmail');
+        const enteredEmail = confirmEmailInput?.value.trim() || '';
+        
+        if (enteredEmail !== user.email) {
+            showNotification('Email не совпадает', 'error');
+            return;
+        }
+        
+        const { auth, db } = window.firebaseApp.getFirebaseServices();
+        
+        showNotification('Удаление аккаунта...', 'info');
+        
+        // Delete user data from Firestore
+        if (db && window.firebase && window.firebase.firestore) {
+            // Delete user document
+            await db.collection('users').doc(user.uid).delete();
+            
+            // Delete transactions
+            const transactionsSnap = await db.collection('transactions').where('userId', '==', user.uid).get();
+            const batch = db.batch();
+            transactionsSnap.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            
+            // Delete goals
+            const goalsSnap = await db.collection('goals').where('userId', '==', user.uid).get();
+            const batch2 = db.batch();
+            goalsSnap.docs.forEach(doc => batch2.delete(doc.ref));
+            await batch2.commit();
+            
+            // Delete tasks
+            const tasksSnap = await db.collection('tasks').where('userId', '==', user.uid).get();
+            const batch3 = db.batch();
+            tasksSnap.docs.forEach(doc => batch3.delete(doc.ref));
+            await batch3.commit();
+        }
+        
+        // Delete user from Firebase Auth
+        await user.delete();
+        
+        showNotification('Аккаунт успешно удален', 'success');
+        closeModal('deleteAccountModal');
+        
+        // Logout and return to welcome
+        if (window.Auth?.logoutUser) {
+            await window.Auth.logoutUser();
+        }
+        
+    } catch (error) {
+        console.error('Ошибка удаления аккаунта:', error);
+        showNotification('Ошибка удаления аккаунта: ' + error.message, 'error');
+    }
+}
+
+
 // Экспорт функций
 window.UI = {
     initializeUI,
