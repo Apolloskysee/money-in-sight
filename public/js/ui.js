@@ -1092,16 +1092,27 @@ async function deleteAccount() {
         try {
             await user.delete();
         } catch (authError) {
-            // If user.delete() fails due to reauthentication requirement, 
-            // try to delete via Netlify function instead
-            if (authError.code === 'auth/requires-recent-login') {
-                console.warn('Требуется повторная аутентификация. Удалю через серверную функцию.');
-                const response = await fetch('/.netlify/functions/delete-user', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid: user.uid, email: user.email })
-                });
-                if (!response.ok) throw new Error(`Ошибка удаления: ${response.statusText}`);
+            // If user.delete() fails due to reauthentication requirement,
+            // try to delete via Netlify function instead. Be permissive when
+            // detecting the 'requires recent login' condition because some
+            // SDKs return different shapes for the error object.
+            const needsReauth = (authError && (authError.code === 'auth/requires-recent-login' || (authError.message && authError.message.toLowerCase().includes('requires recent'))));
+            if (needsReauth) {
+                console.warn('Требуется повторная аутентификация. Попытка удаления через серверную функцию.');
+                try {
+                    const response = await fetch('/.netlify/functions/delete-user', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ uid: user.uid, email: user.email })
+                    });
+                    if (!response.ok) {
+                        let bodyText = await response.text().catch(() => response.statusText || '');
+                        throw new Error(`Ошибка удаления (сервер): ${response.status} ${bodyText}`);
+                    }
+                } catch (fetchErr) {
+                    // If server-side deletion also fails, rethrow a descriptive error
+                    throw fetchErr;
+                }
             } else {
                 throw authError;
             }
