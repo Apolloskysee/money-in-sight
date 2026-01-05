@@ -231,6 +231,57 @@ function updateSubscriptionStatus(userData) {
 
     if (subscriptionStatus) subscriptionStatus.innerHTML = statusHtml;
     if (subscriptionStatusMain) subscriptionStatusMain.innerHTML = statusHtml;
+
+    // Обновляем кнопки на странице подписок
+    try {
+        const premiumBtn = document.querySelector('#subscription .plan-card.featured .btn-primary');
+        const freeBtn = document.querySelector('#subscription .plan-card:not(.featured) .btn-outline');
+
+        const isPremiumLike = userData.subscription === 'premium' || userData.subscription === 'trial';
+
+        if (premiumBtn) {
+            if (isPremiumLike) {
+                premiumBtn.textContent = 'Текущий план';
+                premiumBtn.disabled = true;
+                premiumBtn.classList.remove('btn-primary');
+                premiumBtn.classList.add('btn-outline');
+                premiumBtn.onclick = null;
+            } else {
+                premiumBtn.textContent = 'Выбрать тариф';
+                premiumBtn.disabled = false;
+                premiumBtn.classList.remove('btn-outline');
+                premiumBtn.classList.add('btn-primary');
+                premiumBtn.onclick = window.Payments ? window.Payments.openPaymentModal : null;
+            }
+        }
+
+        if (freeBtn) {
+            if (!isPremiumLike) {
+                freeBtn.textContent = 'Текущий план';
+                freeBtn.disabled = true;
+            } else {
+                freeBtn.textContent = 'Перейти на бесплатный';
+                freeBtn.disabled = false;
+                freeBtn.onclick = () => {
+                    // Переключение на free локально
+                    if (window.Auth && window.Auth.getCurrentUser) {
+                        const user = window.Auth.getCurrentUser();
+                        if (user && window.firebase && window.firebase.firestore) {
+                            const { db } = window.firebaseApp.getFirebaseServices();
+                            db.collection('users').doc(user.uid).update({
+                                subscription: 'free',
+                                subscriptionActive: false,
+                                trialEndDate: null,
+                                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                            }).then(() => window.Auth.updateUserProfile(user)).catch(err => console.error(err));
+                        }
+                    }
+                };
+            }
+        }
+    } catch (e) {
+        console.warn('Ошибка при обновлении кнопок подписок:', e);
+    }
 }
 
 // Обработка ошибок аутентификации
