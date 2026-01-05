@@ -81,11 +81,52 @@ async function registerUser(name, email, password) {
             lastLogin: window.firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Отправляем email для верификации
-        await user.sendEmailVerification();
+        // Генерируем код подтверждения (6 цифр)
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Сохраняем код в Firestore с временем истечения (10 минут)
+        const codeExpiresAt = new Date();
+        codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
+        
+        await db.collection('verificationCodes').doc(user.uid).set({
+            code: verificationCode,
+            email: email,
+            expiresAt: codeExpiresAt.toISOString(),
+            attempts: 0,
+            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log('✅ Код подтверждения сгенерирован');
+        
+        // Отправляем код на почту через EmailJS
+        try {
+            const response = await fetch('/.netlify/functions/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to_email: email,
+                    user_name: name,
+                    verification_code: verificationCode,
+                    type: 'registration'
+                })
+            });
+            
+            if (response.ok) {
+                console.log('✅ Код отправлен на почту');
+            } else {
+                console.warn('⚠️ Ошибка отправки кода:', response.status);
+            }
+        } catch (emailError) {
+            console.error('⚠️ Ошибка при отправке email:', emailError);
+        }
         
         console.log('✅ Пользователь зарегистрирован:', user.uid);
-        return { success: true, user };
+        
+        // Сохраняем userId для проверки кода позже
+        window.registrationUserId = user.uid;
+        window.registrationEmail = email;
+        
+        return { success: true, user, requiresVerification: true };
         
     } catch (error) {
         console.error('❌ Ошибка регистрации:', error);

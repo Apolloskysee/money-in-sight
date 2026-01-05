@@ -586,9 +586,20 @@ async function handleRegisterSubmit(e) {
     submitBtn.disabled = true;
     
     try {
-        await window.Auth.registerUser(name, email, password);
-        showNotification('Регистрация успешна! Проверьте email для подтверждения.', 'success');
+        const result = await window.Auth.registerUser(name, email, password);
+        showNotification('Регистрация успешна! Код отправлен на вашу почту.', 'success');
+        
+        // Закрываем модаль регистрации
         closeModal('registerModal');
+        
+        // Открываем модаль подтверждения кода
+        if (result.requiresVerification) {
+            setTimeout(() => {
+                if (typeof openEmailVerificationModal === 'function') {
+                    openEmailVerificationModal(email);
+                }
+            }, 500);
+        }
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {

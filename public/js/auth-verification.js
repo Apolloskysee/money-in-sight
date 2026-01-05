@@ -1,4 +1,4 @@
-// auth-verification.js - email verification helpers
+// auth-verification.js - Registration code verification helpers
 
 let verificationCountdownInterval = null;
 let verificationCountdown = 60;
@@ -12,6 +12,10 @@ function openEmailVerificationModal(email) {
 
     // show modal
     modal.style.display = 'block';
+
+    // Clear code input
+    const codeInput = document.getElementById('verificationCode');
+    if (codeInput) codeInput.value = '';
 
     // disable resend button and start countdown
     const resendBtn = document.getElementById('resendCodeBtn');
@@ -47,6 +51,10 @@ function closeEmailVerificationModal() {
 
 function goBackToRegistration() {
     closeEmailVerificationModal();
+    // Clear registration form
+    const regForm = document.getElementById('registerForm');
+    if (regForm) regForm.reset();
+    // Open registration modal
     if (window.UI && typeof window.UI.openModal === 'function') {
         window.UI.openModal('registerModal');
     }
@@ -54,13 +62,46 @@ function goBackToRegistration() {
 
 async function resendVerificationCode() {
     try {
-        const services = window.firebaseApp.getFirebaseServices();
-        const auth = services.auth;
-        const user = auth.currentUser;
-        if (!user) throw new Error('Пользователь не найден');
+        const email = window.registrationEmail;
+        if (!email) throw new Error('Email не найден');
 
-        await user.sendEmailVerification();
-        if (window.UI && window.UI.showNotification) window.UI.showNotification('Письмо с подтверждением отправлено', 'success');
+        // Generate new code and send
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const userId = window.registrationUserId;
+        
+        if (!userId) throw new Error('User ID не найден');
+
+        const { db } = window.firebaseApp.getFirebaseServices();
+        
+        // Update code in Firestore
+        const codeExpiresAt = new Date();
+        codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
+        
+        await db.collection('verificationCodes').doc(userId).set({
+            code: verificationCode,
+            email: email,
+            expiresAt: codeExpiresAt.toISOString(),
+            attempts: 0,
+            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Send email
+        const response = await fetch('/.netlify/functions/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to_email: email,
+                user_name: 'Пользователь',
+                verification_code: verificationCode,
+                type: 'registration'
+            })
+        });
+
+        if (response.ok) {
+            if (window.UI && window.UI.showNotification) {
+                window.UI.showNotification('Код переотправлен на вашу почту', 'success');
+            }
+        }
 
         // restart countdown
         const resendBtn = document.getElementById('resendCodeBtn');
@@ -79,42 +120,99 @@ async function resendVerificationCode() {
         }, 1000);
 
     } catch (error) {
-        console.error('Ошибка отправки письма подтверждения:', error);
-        if (window.UI && window.UI.showNotification) window.UI.showNotification('Не удалось отправить письмо подтверждения', 'error');
+        console.error('Ошибка переотправки кода:', error);
+        if (window.UI && window.UI.showNotification) {
+            window.UI.showNotification('Не удалось переотправить код', 'error');
+        }
     }
 }
 
 async function handleVerificationSubmit(e) {
     e.preventDefault();
     try {
-        const services = window.firebaseApp.getFirebaseServices();
-        const auth = services.auth;
-        let user = auth.currentUser;
-        if (!user) {
-            throw new Error('Пользователь не найден');
+        const codeInput = document.getElementById('verificationCode');
+        if (!codeInput) throw new Error('Поле кода не найдено');
+
+        const enteredCode = codeInput.value.trim();
+        if (!enteredCode || enteredCode.length !== 6) {
+            if (window.UI && window.UI.showNotification) {
+                window.UI.showNotification('Пожалуйста, введите корректный 6-значный код', 'error');
+            }
+            return;
         }
 
-        // reload user to get latest emailVerified flag
-        await user.reload();
-        user = auth.currentUser;
+        const userId = window.registrationUserId;
+        if (!userId) throw new Error('User ID не найден');
 
-        if (user.emailVerified) {
-            // close modal, update UI and load app
-            closeEmailVerificationModal();
-            if (window.UI && typeof window.UI.loadDashboardData === 'function') {
-                try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после подтверждения', e); }
+        const { db } = window.firebaseApp.getFirebaseServices();
+        
+        // Get the stored code from Firestore
+        const codeDoc = await db.collection('verificationCodes').doc(userId).get();
+        
+        if (!codeDoc.exists) {
+            throw new Error('Код подтверждения не найден. Попробуйте переотправить код.');
+        }
+
+        const codeData = codeDoc.data();
+        
+        // Check if code is expired
+        if (new Date(codeData.expiresAt) < new Date()) {
+            throw new Error('Код подтверждения истёк. Запросите новый код.');
+        }
+
+        // Check if code matches
+        if (codeData.code !== enteredCode) {
+            // Increment failed attempts
+            const newAttempts = (codeData.attempts || 0) + 1;
+            if (newAttempts >= 3) {
+                await db.collection('verificationCodes').doc(userId).delete();
+                throw new Error('Превышено максимальное число попыток. Перейдите назад и запросите новый код.');
             }
-            if (window.Auth && typeof window.Auth.updateUserProfile === 'function') {
-                try { await window.Auth.updateUserProfile(user); } catch (e) { console.error('Ошибка обновления профиля после подтверждения', e); }
-            }
-            if (window.UI && window.UI.showNotification) window.UI.showNotification('Email подтверждён. Добро пожаловать!', 'success');
+            
+            await db.collection('verificationCodes').doc(userId).update({
+                attempts: newAttempts
+            });
+            
+            throw new Error(`Неверный код. Попыток осталось: ${3 - newAttempts}`);
+        }
+
+        // Code is correct! Mark email as verified
+        await db.collection('users').doc(userId).update({
+            emailVerified: true,
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Delete the code
+        await db.collection('verificationCodes').doc(userId).delete();
+
+        // Close modal
+        closeEmailVerificationModal();
+        
+        if (window.UI && window.UI.showNotification) {
+            window.UI.showNotification('Email успешно подтвержден! Приложение загружается...', 'success');
+        }
+
+        // Sign in the user and open app
+        const { auth } = window.firebaseApp.getFirebaseServices();
+        const user = auth.currentUser;
+        if (user && window.Auth) {
+            await window.Auth.updateUserProfile(user);
             if (typeof showApp === 'function') showApp();
-        } else {
-            if (window.UI && window.UI.showNotification) window.UI.showNotification('Email ещё не подтверждён. Проверьте письмо и нажмите ссылку.', 'error');
+            
+            // Load app data
+            if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда', e); }
+            }
+            if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля', e); }
+            }
         }
+
     } catch (error) {
-        console.error('Ошибка в проверке подтверждения email:', error);
-        if (window.UI && window.UI.showNotification) window.UI.showNotification('Ошибка проверки подтверждения', 'error');
+        console.error('Ошибка проверки кода:', error);
+        if (window.UI && window.UI.showNotification) {
+            window.UI.showNotification(error.message || 'Ошибка проверки кода', 'error');
+        }
     }
 }
 
