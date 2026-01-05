@@ -19,7 +19,6 @@ yarn.lock
 
 # Netlify
 .netlify/
-netlify.toml
 netlify.toml.local
 
 # Logs
