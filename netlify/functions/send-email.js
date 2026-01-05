@@ -30,11 +30,42 @@ exports.handler = async function(event, context) {
             };
         }
 
-        // В режиме разработки - логируем
+        // В режиме разработки - логируем и (если есть service account) сохраняем код в Firestore для локального тестирования
         if (process.env.NODE_ENV !== 'production') {
             console.log('DEMO MODE: Email would be sent to:', to_email);
             console.log('Type:', type, 'Code:', verification_code);
-            
+
+            // Try to store verification code server-side in demo mode if service account is provided
+            try {
+                const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+                if (serviceAccountJson) {
+                    const admin = require('firebase-admin');
+                    if (!admin.apps.length) {
+                        admin.initializeApp({
+                            credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
+                            databaseURL: process.env.FIREBASE_DATABASE_URL
+                        });
+                    }
+                    const db = admin.firestore();
+                    const body = JSON.parse(event.body || '{}');
+                    const userId = body.user_id || null;
+                    const expiresAt = body.expires_at || null;
+                    if (userId) {
+                        await db.collection('verificationCodes').doc(userId).set({
+                            code: verification_code,
+                            email: to_email,
+                            userId: userId,
+                            expiresAt: expiresAt,
+                            attempts: 0,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log('Demo: verification code stored for user', userId);
+                    }
+                }
+            } catch (demoStoreErr) {
+                console.warn('Demo mode: failed to store verification code:', demoStoreErr);
+            }
+
             return {
                 statusCode: 200,
                 headers,
