@@ -182,35 +182,35 @@ async function logoutUser() {
 async function updateUserProfile(user) {
     try {
         const { db } = window.firebaseApp.getFirebaseServices();
-        
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        
+        const firebase = window.firebase;
+
+        const userRef = db.collection('users').doc(user.uid);
+        const userDoc = await userRef.get();
+
         if (userDoc.exists) {
             const userData = userDoc.data();
             window.currentUserData = userData;
-
             // Обновляем интерфейс
             updateUIWithUserData(user, userData);
         } else {
-            console.warn('⚠️ Профиль пользователя не найден в Firestore — создаю запись');
-            // Create a baseline user document for users who signed up outside the standard flow
+            console.warn('⚠️ Профиль пользователя не найден в Firestore — создаём запись');
+            const newUserData = {
+                uid: user.uid,
+                name: user.displayName || '',
+                email: user.email || '',
+                emailVerified: !!user.emailVerified,
+                subscription: 'free',
+                subscriptionActive: false,
+                createdAt: firebase && firebase.firestore ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+                lastLogin: firebase && firebase.firestore ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+            };
+
             try {
-                const firebase = window.firebase;
-                const created = {
-                    uid: user.uid,
-                    name: user.displayName || '',
-                    email: user.email || '',
-                    emailVerified: !!user.emailVerified,
-                    subscription: 'free',
-                    subscriptionActive: false,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                await db.collection('users').doc(user.uid).set(created);
-                window.currentUserData = created;
-                updateUIWithUserData(user, created);
+                await userRef.set(newUserData, { merge: true });
+                window.currentUserData = newUserData;
+                updateUIWithUserData(user, newUserData);
             } catch (createErr) {
-                console.error('Ошибка создания профиля пользователя:', createErr);
+                console.error('❌ Не удалось создать профиль пользователя в Firestore:', createErr);
             }
         }
     } catch (error) {

@@ -1092,26 +1092,37 @@ async function deleteAccount() {
         try {
             await user.delete();
         } catch (authError) {
+            const firebase = window.firebase;
             // If user.delete() fails due to reauthentication requirement,
-            // try to delete via Netlify function instead. Be permissive when
-            // detecting the 'requires recent login' condition because some
-            // SDKs return different shapes for the error object.
-            const needsReauth = (authError && (authError.code === 'auth/requires-recent-login' || (authError.message && authError.message.toLowerCase().includes('requires recent'))));
-            if (needsReauth) {
-                console.warn('Требуется повторная аутентификация. Попытка удаления через серверную функцию.');
+            // attempt client-side reauthentication (ask for password) before falling back to server-side deletion
+            if (authError && authError.code === 'auth/requires-recent-login') {
                 try {
-                    const response = await fetch('/.netlify/functions/delete-user', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ uid: user.uid, email: user.email })
-                    });
-                    if (!response.ok) {
-                        let bodyText = await response.text().catch(() => response.statusText || '');
-                        throw new Error(`Ошибка удаления (сервер): ${response.status} ${bodyText}`);
+                    const password = window.prompt('Для удаления аккаунта введите пароль для повторной аутентификации:');
+                    if (password) {
+                        const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+                        await user.reauthenticateWithCredential(credential);
+                        // After successful reauth, try delete again
+                        await user.delete();
+                    } else {
+                        showNotification('Повторная аутентификация отменена', 'error');
+                        return;
                     }
-                } catch (fetchErr) {
-                    // If server-side deletion also fails, rethrow a descriptive error
-                    throw fetchErr;
+                } catch (reauthErr) {
+                    console.warn('Повторная аутентификация не удалась:', reauthErr);
+                    // Fallback to server-side deletion via Netlify function
+                    try {
+                        const response = await fetch('/.netlify/functions/delete-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ uid: user.uid, email: user.email })
+                        });
+                        if (!response.ok) {
+                            const text = await response.text();
+                            throw new Error(`Ошибка удаления (сервер): ${response.status} ${text}`);
+                        }
+                    } catch (serverErr) {
+                        throw serverErr;
+                    }
                 }
             } else {
                 throw authError;
