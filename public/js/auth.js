@@ -188,11 +188,30 @@ async function updateUserProfile(user) {
         if (userDoc.exists) {
             const userData = userDoc.data();
             window.currentUserData = userData;
-            
+
             // Обновляем интерфейс
             updateUIWithUserData(user, userData);
         } else {
-            console.warn('⚠️ Профиль пользователя не найден в Firestore');
+            console.warn('⚠️ Профиль пользователя не найден в Firestore — создаю запись');
+            // Create a baseline user document for users who signed up outside the standard flow
+            try {
+                const firebase = window.firebase;
+                const created = {
+                    uid: user.uid,
+                    name: user.displayName || '',
+                    email: user.email || '',
+                    emailVerified: !!user.emailVerified,
+                    subscription: 'free',
+                    subscriptionActive: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                await db.collection('users').doc(user.uid).set(created);
+                window.currentUserData = created;
+                updateUIWithUserData(user, created);
+            } catch (createErr) {
+                console.error('Ошибка создания профиля пользователя:', createErr);
+            }
         }
     } catch (error) {
         console.error('❌ Ошибка обновления профиля:', error);
