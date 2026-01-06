@@ -647,9 +647,17 @@ async function handleLoginSubmit(e) {
     submitBtn.disabled = true;
     
     try {
+        // Дождаемся полной инициализации входа (включая загрузку данных)
         await window.Auth.loginUser(email, password);
+        
+        // Даем время Firebase слушателю обработать изменения и показать приложение
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
         showNotification('Вход выполнен успешно', 'success');
+        
+        // Закрываем модаль только ПОСЛЕ того как приложение инициализировалось
         closeModal('loginModal');
+        
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {

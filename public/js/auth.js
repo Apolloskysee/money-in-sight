@@ -86,6 +86,12 @@ async function registerUser(name, email, password) {
             
             console.log('✨ Регистрация пользователя:', email, `(попытка ${retryCount + 1}/${MAX_RETRIES})`);
             
+            // Устанавливаем флаг "идет регистрация" - это предотвращает автоматический показ приложения
+            if (!window._registrationState) {
+                window._registrationState = {};
+            }
+            window._registrationState.inProgress = true;
+            
             // Проверяем, существует ли пользователь с таким email
             try {
                 await auth.fetchSignInMethodsForEmail(email);
@@ -217,6 +223,7 @@ async function registerUser(name, email, password) {
             }
             window._registrationState.userId = user.uid;
             window._registrationState.email = email;
+            window._registrationState.inProgress = false;  // Очищаем флаг завершения регистрации
             
             return { success: true, user, requiresVerification: true };
 
@@ -243,7 +250,12 @@ async function loginUser(email, password) {
     try {
         const { auth, db } = window.firebaseApp.getFirebaseServices();
         
-        console.log('🔐 Вход пользователя:', email);
+        console.log('🔐 Попытка входа:', email);
+        
+        // Проверяем регистрацию в процессе
+        if (window._registrationState && window._registrationState.inProgress) {
+            throw new Error('Регистрация в процессе, попробуйте позже');
+        }
         
         const userCredential = await auth.signInWithEmailAndPassword(email, password);
         const user = userCredential.user;
@@ -262,6 +274,27 @@ async function loginUser(email, password) {
         }, { merge: true });
         
         console.log('✅ Пользователь вошел:', user.uid);
+        
+        // ВАЖНО: Дождаться загрузки данных и инициализации UI перед возвратом
+        // Это предотвращает показ пустого приложения
+        try {
+            // Даем время Firebase слушателю на обработку состояния
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Дождаемся загрузки данных если функции доступны
+            if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                await window.UI.loadDashboardData();
+            }
+            if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                await window.UI.loadProfileData();
+            }
+            
+            console.log('✅ Данные пользователя загружены');
+        } catch (dataLoadErr) {
+            console.warn('⚠️ Предупреждение при загрузке данных (некритичное):', dataLoadErr);
+            // Продолжаем даже если загрузка данных не удалась
+        }
+        
         return { success: true, user };
         
     } catch (error) {
