@@ -9,25 +9,56 @@ async function initializeAuth() {
         const services = await window.firebaseApp.initializeFirebase();
         if (!services) throw new Error('Firebase не инициализирован');
         
-        const { auth } = services;
+        const { auth, db } = services;
         
         // Слушатель изменения состояния аутентификации
         auth.onAuthStateChanged(async (user) => {
             currentUser = user;
 
             if (user) {
-                console.log('👤 Пользователь вошел:', user.email);
+                console.log('👤 Пользователь в системе:', user.email);
 
-                // Продолжаем сразу, без проверки emailVerified
-                await updateUserProfile(user);
-                showApp();
+                try {
+                    // Получаем данные пользователя из Firestore
+                    const userDoc = await db.collection('users').doc(user.uid).get();
+                    
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        
+                        // Проверяем: требуется ли верификация email?
+                        if (userData.emailVerified === false && !window._registrationState?.skipVerificationCheck) {
+                            console.log('📧 Email требует верификации - показываем модаль верификации');
+                            // Пользователь зарегистрирован, но email не верифицирован
+                            // Показываем страницу приветствия, не приложение
+                            showWelcome();
+                            // Показываем модаль верификации
+                            setTimeout(() => {
+                                if (typeof openEmailVerificationModal === 'function') {
+                                    openEmailVerificationModal(user.email);
+                                }
+                            }, 500);
+                            return;
+                        }
+                        
+                        // Email верифицирован или это не новая регистрация - показываем приложение
+                        await updateUserProfile(user);
+                        showApp();
 
-                // После входа загружаем данные приложения (дашборд, профиль и т.д.)
-                if (window.UI && typeof window.UI.loadDashboardData === 'function') {
-                    try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после входа', e); }
-                }
-                if (window.UI && typeof window.UI.loadProfileData === 'function') {
-                    try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля после входа', e); }
+                        // После входа загружаем данные приложения (дашборд, профиль и т.д.)
+                        if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                            try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда после входа', e); }
+                        }
+                        if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                            try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля после входа', e); }
+                        }
+                    } else {
+                        // Профиль не найден в Firestore - показываем приветствие
+                        console.warn('⚠️ Профиль пользователя не найден в Firestore');
+                        showWelcome();
+                    }
+                } catch (error) {
+                    console.error('Ошибка проверки профиля:', error);
+                    showWelcome();
                 }
             } else {
                 console.log('🚪 Пользователь вышел');
@@ -171,7 +202,16 @@ async function registerUser(name, email, password) {
             
             console.log('✅ Пользователь успешно зарегистрирован:', user.uid);
             
-            // Сохраняем userId с пространством имен для избежания конфликтов
+            // ВАЖНО: Логаутим пользователя сразу после регистрации
+            // Он должен войти только после верификации email
+            try {
+                await auth.signOut();
+                console.log('🚪 Пользователь логаутен - требуется верификация email');
+            } catch (logoutErr) {
+                console.warn('⚠️ Ошибка при логауте (некритичная):', logoutErr);
+            }
+            
+            // Сохраняем информацию для верификации
             if (!window._registrationState) {
                 window._registrationState = {};
             }
