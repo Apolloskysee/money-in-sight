@@ -512,7 +512,13 @@ function setupForms() {
     // Форма оплаты
     const paymentForm = document.getElementById('paymentForm');
     if (paymentForm) {
-        paymentForm.addEventListener('submit', handlePaymentSubmit);
+        paymentForm.addEventListener('submit', (e) => {
+            if (window.Payments && window.Payments.handlePaymentSubmit) {
+                window.Payments.handlePaymentSubmit(e);
+            } else {
+                console.warn('⚠️ Модуль платежей ещё не загружен');
+            }
+        });
     }
 
     
@@ -586,22 +592,36 @@ async function handleRegisterSubmit(e) {
     submitBtn.disabled = true;
     
     try {
+        console.log('📝 Начало процесса регистрации для:', email);
+        
         const result = await window.Auth.registerUser(name, email, password);
-        showNotification('Регистрация успешна! Код отправлен на вашу почту.', 'success');
         
-        // Закрываем модаль регистрации
-        closeModal('registerModal');
+        console.log('✅ Регистрация завершена, требуется верификация:', result.requiresVerification);
         
-        // Открываем модаль подтверждения кода
         if (result.requiresVerification) {
+            // Закрываем модаль регистрации
+            closeModal('registerModal');
+            
+            // Показываем сообщение о том, что отправлен код
+            showNotification('✅ Код подтверждения отправлен на ' + email + '. Проверьте почту.', 'success');
+            
+            // Открываем модаль подтверждения кода с небольшой задержкой
             setTimeout(() => {
+                console.log('📧 Открытие модали подтверждения кода');
                 if (typeof openEmailVerificationModal === 'function') {
                     openEmailVerificationModal(email);
+                } else {
+                    console.error('❌ Функция openEmailVerificationModal не найдена');
+                    showNotification('Ошибка: модаль верификации не загружена', 'error');
                 }
             }, 500);
+        } else {
+            showNotification('Регистрация успешна! Добро пожаловать!', 'success');
+            closeModal('registerModal');
         }
     } catch (error) {
-        showNotification(error.message, 'error');
+        console.error('❌ Ошибка при регистрации:', error);
+        showNotification(error.message || 'Ошибка регистрации', 'error');
     } finally {
         submitBtn.textContent = originalText;
         submitBtn.disabled = false;

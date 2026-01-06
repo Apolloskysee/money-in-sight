@@ -157,6 +157,8 @@ async function handleVerificationSubmit(e) {
         
         // Check if code is expired
         if (new Date(codeData.expiresAt) < new Date()) {
+            // Delete expired code
+            await db.collection('verificationCodes').doc(userId).delete();
             throw new Error('Код подтверждения истёк. Запросите новый код.');
         }
 
@@ -166,6 +168,9 @@ async function handleVerificationSubmit(e) {
             const newAttempts = (codeData.attempts || 0) + 1;
             if (newAttempts >= 3) {
                 await db.collection('verificationCodes').doc(userId).delete();
+                if (window.UI && window.UI.showNotification) {
+                    window.UI.showNotification('Превышено максимальное число попыток. Перейдите назад и запросите новый код.', 'error');
+                }
                 throw new Error('Превышено максимальное число попыток. Перейдите назад и запросите новый код.');
             }
             
@@ -173,13 +178,23 @@ async function handleVerificationSubmit(e) {
                 attempts: newAttempts
             });
             
-            throw new Error(`Неверный код. Попыток осталось: ${3 - newAttempts}`);
+            const attemptsLeft = 3 - newAttempts;
+            const errorMessage = `Неверный код. Попыток осталось: ${attemptsLeft}`;
+            if (window.UI && window.UI.showNotification) {
+                window.UI.showNotification(errorMessage, 'error');
+            }
+            throw new Error(errorMessage);
         }
 
         // Code is correct! Mark email as verified
         const firebase = window.firebase;
+        const auth = window.firebaseApp.getFirebaseServices().auth;
+        
+        // Update user in Firestore
         await db.collection('users').doc(userId).update({
             emailVerified: true,
+            verificationStatus: 'verified',
+            verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -190,22 +205,26 @@ async function handleVerificationSubmit(e) {
         closeEmailVerificationModal();
         
         if (window.UI && window.UI.showNotification) {
-            window.UI.showNotification('Email успешно подтвержден! Приложение загружается...', 'success');
+            window.UI.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
         }
 
-        // Sign in the user and open app
-        const { auth } = window.firebaseApp.getFirebaseServices();
+        // The user should already be signed in via auth.currentUser
+        // Just update the profile and show the app
         const user = auth.currentUser;
-        if (user && window.Auth) {
-            await window.Auth.updateUserProfile(user);
-            if (typeof showApp === 'function') showApp();
-            
-            // Load app data
-            if (window.UI && typeof window.UI.loadDashboardData === 'function') {
-                try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда', e); }
-            }
-            if (window.UI && typeof window.UI.loadProfileData === 'function') {
-                try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля', e); }
+        if (user) {
+            try {
+                await window.Auth.updateUserProfile(user);
+                if (typeof showApp === 'function') showApp();
+                
+                // Load app data
+                if (window.UI && typeof window.UI.loadDashboardData === 'function') {
+                    try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда', e); }
+                }
+                if (window.UI && typeof window.UI.loadProfileData === 'function') {
+                    try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля', e); }
+                }
+            } catch (err) {
+                console.error('Ошибка обновления профиля:', err);
             }
         }
 

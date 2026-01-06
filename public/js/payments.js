@@ -1,8 +1,7 @@
 // payments.js - Обработка платежей
 console.log('💳 Загрузка модуля платежей...');
 
-// Получить Firebase instance
-const firebase = typeof window !== 'undefined' ? window.firebase : null;
+// Используем window.firebase напрямую, чтобы избежать дублирующих объявлений
 
 // Объявление функции заранее
 async function updateSubscriptionToPremium() {
@@ -28,8 +27,12 @@ async function updateSubscriptionToPremium() {
             subscriptionActive: true,
             trialEndDate: null,
             lastPaymentDate: new Date().toISOString(),
-            premiumSince: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            premiumSince: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null,
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         });
         
         console.log('✅ Подписка обновлена до премиум');

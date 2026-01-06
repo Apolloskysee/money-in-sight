@@ -1,8 +1,7 @@
 // data.js - Работа с данными Firestore
 console.log('📊 Загрузка модуля данных...');
 
-// Получить Firebase instance для использования в FieldValue вызовах
-const firebase = typeof window !== 'undefined' ? window.firebase : null;
+// Используем window.firebase напрямую для избежания дублирующих объявлений
 
 // Категории транзакций
 const CATEGORIES = {
@@ -55,7 +54,9 @@ async function updateTask(taskId, updateData) {
         
         await db.collection('tasks').doc(taskId).update({
             ...updateData,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         });
         
         console.log('📝 Задача обновлена:', taskId);
@@ -130,7 +131,9 @@ async function updateGoal(goalId, updateData) {
         
         await db.collection('goals').doc(goalId).update({
             ...updateData,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         });
         
         console.log('🎯 Цель обновлена:', goalId);
@@ -161,8 +164,12 @@ async function addTransaction(transactionData) {
         const transaction = {
             ...transactionData,
             userId: user.uid,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null,
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         };
         
         const docRef = await db.collection('transactions').add(transaction);
@@ -260,8 +267,12 @@ async function addGoal(goalData) {
             ...goalData,
             userId: user.uid,
             progress: (goalData.current / goalData.target) * 100,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null,
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         };
         
         const docRef = await db.collection('goals').add(goal);
@@ -323,8 +334,12 @@ async function addTask(taskData) {
             ...taskData,
             userId: user.uid,
             completed: false,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null,
+            updatedAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         };
         
         const docRef = await db.collection('tasks').add(task);

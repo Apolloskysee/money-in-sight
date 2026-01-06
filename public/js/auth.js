@@ -68,7 +68,6 @@ async function registerUser(name, email, password) {
         // Устанавливаем пробную подписку на 14 дней при регистрации
         const trialEnd = new Date();
         trialEnd.setDate(trialEnd.getDate() + 14);
-        const firebase = window.firebase;
 
         await db.collection('users').doc(user.uid).set({
             uid: user.uid,
@@ -78,8 +77,12 @@ async function registerUser(name, email, password) {
             subscription: 'trial',
             trialEndDate: trialEnd.toISOString(),
             subscriptionActive: true,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null,
+            lastLogin: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         });
         
         // Генерируем код подтверждения (6 цифр)
@@ -89,7 +92,23 @@ async function registerUser(name, email, password) {
         const codeExpiresAt = new Date();
         codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
 
-        console.log('✅ Код подтверждения сгенерирован');
+        console.log('✅ Код подтверждения сгенерирован:', verificationCode);
+
+        // Сохраняем код в Firestore на сервере
+        try {
+            await db.collection('verificationCodes').doc(user.uid).set({
+                code: verificationCode,
+                email: email,
+                expiresAt: codeExpiresAt.toISOString(),
+                attempts: 0,
+                createdAt: window.firebase && window.firebase.firestore
+                    ? window.firebase.firestore.FieldValue.serverTimestamp()
+                    : null
+            });
+            console.log('✅ Код верификации сохранен в Firestore');
+        } catch (firestoreError) {
+            console.error('⚠️ Ошибка сохранения кода в Firestore:', firestoreError);
+        }
 
         // Отправляем код и информацию на серверную функцию для отправки письма
         try {
@@ -114,6 +133,7 @@ async function registerUser(name, email, password) {
             }
         } catch (emailError) {
             console.error('⚠️ Ошибка при отправке email:', emailError);
+            throw new Error('Не удалось отправить письмо с кодом верификации. Попробуйте позже.');
         }
         
         console.log('✅ Пользователь зарегистрирован:', user.uid);
@@ -148,7 +168,9 @@ async function loginUser(email, password) {
         const firebase = window.firebase;
         // Use set with merge to avoid "No document to update" when user doc doesn't exist
         await db.collection('users').doc(user.uid).set({
-            lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+            lastLogin: window.firebase && window.firebase.firestore
+                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                : null
         }, { merge: true });
         
         console.log('✅ Пользователь вошел:', user.uid);
@@ -261,12 +283,13 @@ function updateSubscriptionStatus(userData) {
                     const user = window.Auth.getCurrentUser();
                     if (user) {
                         const { db } = window.firebaseApp.getFirebaseServices();
-                        const firebase = window.firebase;
                         db.collection('users').doc(user.uid).update({
                             subscription: 'free',
                             subscriptionActive: false,
                             trialEndDate: null,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            updatedAt: window.firebase && window.firebase.firestore
+                                ? window.firebase.firestore.FieldValue.serverTimestamp()
+                                : null
                         }).catch(err => console.warn('Не удалось обновить статус подписки в Firestore:', err));
                     }
                 }
@@ -329,12 +352,13 @@ function updateSubscriptionStatus(userData) {
                         const user = window.Auth.getCurrentUser();
                         if (user && window.firebase && window.firebase.firestore) {
                             const { db } = window.firebaseApp.getFirebaseServices();
-                            const firebase = window.firebase;
                             db.collection('users').doc(user.uid).update({
                                 subscription: 'free',
                                 subscriptionActive: false,
                                 trialEndDate: null,
-                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                updatedAt: window.firebase && window.firebase.firestore
+                                    ? window.firebase.firestore.FieldValue.serverTimestamp()
+                                    : null
                             }).then(() => window.Auth.updateUserProfile(user)).catch(err => console.error(err));
                         }
                     }
