@@ -1074,80 +1074,27 @@ async function deleteAccount() {
             showNotification('Email не совпадает', 'error');
             return;
         }
-        
-        const { auth, db } = window.firebaseApp.getFirebaseServices();
-        
+
         showNotification('Удаление аккаунта...', 'info');
         
-        // Delete user data from Firestore using a single batch operation
-        if (db && window.firebase && window.firebase.firestore) {
-            // Create a single batch for all deletions
-            const batch = db.batch();
-            
-            // Delete user document
-            batch.delete(db.collection('users').doc(user.uid));
-            
-            // Delete transactions
-            const transactionsSnap = await db.collection('transactions').where('userId', '==', user.uid).get();
-            transactionsSnap.docs.forEach(doc => batch.delete(doc.ref));
-            
-            // Delete goals
-            const goalsSnap = await db.collection('goals').where('userId', '==', user.uid).get();
-            goalsSnap.docs.forEach(doc => batch.delete(doc.ref));
-            
-            // Delete tasks
-            const tasksSnap = await db.collection('tasks').where('userId', '==', user.uid).get();
-            tasksSnap.docs.forEach(doc => batch.delete(doc.ref));
-            
-            // Delete verification codes if any
-            const codesSnap = await db.collection('verificationCodes').where('userId', '==', user.uid).get();
-            codesSnap.docs.forEach(doc => batch.delete(doc.ref));
-            
-            // Commit all deletions at once
-            await batch.commit();
+        // Всегда используем серверную функцию для безопасного удаления
+        // это гарантирует, что все данные будут удалены правильно, 
+        // даже если пользователь отлогинился или истекла сессия
+        const response = await fetch('/.netlify/functions/delete-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                uid: user.uid, 
+                email: user.email 
+            })
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Ошибка удаления (${response.status}): ${text}`);
         }
-        
-        // Delete user from Firebase Auth - MUST be done AFTER Firestore deletion
-        // because after this point we lose access to Firestore with user's permissions
-        try {
-            await user.delete();
-        } catch (authError) {
-            const firebase = window.firebase;
-            // If user.delete() fails due to reauthentication requirement,
-            // attempt client-side reauthentication (ask for password) before falling back to server-side deletion
-            if (authError && authError.code === 'auth/requires-recent-login') {
-                try {
-                    const password = window.prompt('Для удаления аккаунта введите пароль для повторной аутентификации:');
-                    if (password) {
-                        const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
-                        await user.reauthenticateWithCredential(credential);
-                        // After successful reauth, try delete again
-                        await user.delete();
-                    } else {
-                        showNotification('Повторная аутентификация отменена', 'error');
-                        return;
-                    }
-                } catch (reauthErr) {
-                    console.warn('Повторная аутентификация не удалась:', reauthErr);
-                    // Fallback to server-side deletion via Netlify function
-                    try {
-                        const response = await fetch('/.netlify/functions/delete-user', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ uid: user.uid, email: user.email })
-                        });
-                        if (!response.ok) {
-                            const text = await response.text();
-                            throw new Error(`Ошибка удаления (сервер): ${response.status} ${text}`);
-                        }
-                    } catch (serverErr) {
-                        throw serverErr;
-                    }
-                }
-            } else {
-                throw authError;
-            }
-        }
+
+        const result = await response.json();
         
         showNotification('Аккаунт успешно удален', 'success');
         closeModal('deleteAccountModal');

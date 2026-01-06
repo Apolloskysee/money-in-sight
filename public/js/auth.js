@@ -46,73 +46,109 @@ async function initializeAuth() {
 
 // Регистрация нового пользователя
 async function registerUser(name, email, password) {
-    try {
-        const { auth, db } = window.firebaseApp.getFirebaseServices();
-        
-        console.log('✨ Регистрация пользователя:', email);
-        
-        // Создаем пользователя в Firebase Auth
-        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        const user = userCredential.user;
-        
-        // Обновляем имя пользователя
-        await user.updateProfile({
-            displayName: name
-        });
-        
-        // Создаем запись в Firestore
-        if (!window.firebase || !window.firebase.firestore) {
-            throw new Error('Firebase Firestore не инициализирован');
-        }
-        
-        // Устанавливаем пробную подписку на 14 дней при регистрации
-        const trialEnd = new Date();
-        trialEnd.setDate(trialEnd.getDate() + 14);
+    const MAX_RETRIES = 3;
+    let retryCount = 0;
 
-        await db.collection('users').doc(user.uid).set({
-            uid: user.uid,
-            name: name,
-            email: email,
-            emailVerified: false,
-            subscription: 'trial',
-            trialEndDate: trialEnd.toISOString(),
-            subscriptionActive: true,
-            createdAt: window.firebase && window.firebase.firestore
-                ? window.firebase.firestore.FieldValue.serverTimestamp()
-                : null,
-            lastLogin: window.firebase && window.firebase.firestore
-                ? window.firebase.firestore.FieldValue.serverTimestamp()
-                : null
-        });
-        
-        // Генерируем код подтверждения (6 цифр)
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        // Сохраняем код истечения на клиенте и отправляем запрос серверу для отправки email
-        const codeExpiresAt = new Date();
-        codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
-
-        console.log('✅ Код подтверждения сгенерирован:', verificationCode);
-
-        // Сохраняем код в Firestore на сервере
+    async function attemptRegistration() {
         try {
-            await db.collection('verificationCodes').doc(user.uid).set({
-                code: verificationCode,
-                email: email,
-                expiresAt: codeExpiresAt.toISOString(),
-                attempts: 0,
-                createdAt: window.firebase && window.firebase.firestore
-                    ? window.firebase.firestore.FieldValue.serverTimestamp()
-                    : null
-            });
-            console.log('✅ Код верификации сохранен в Firestore');
-        } catch (firestoreError) {
-            console.error('⚠️ Ошибка сохранения кода в Firestore:', firestoreError);
-        }
+            const { auth, db } = window.firebaseApp.getFirebaseServices();
+            
+            console.log('✨ Регистрация пользователя:', email, `(попытка ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            // Проверяем, существует ли пользователь с таким email
+            try {
+                await auth.fetchSignInMethodsForEmail(email);
+            } catch (err) {
+                if (err.code === 'auth/invalid-email') {
+                    throw new Error('Некорректный формат email');
+                }
+            }
+            
+            // Создаем пользователя в Firebase Auth
+            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+            const user = userCredential.user;
+            
+            console.log('✅ Пользователь создан в Auth:', user.uid);
+            
+            // Обновляем имя пользователя
+            try {
+                await user.updateProfile({
+                    displayName: name
+                });
+            } catch (profileErr) {
+                console.warn('⚠️ Ошибка обновления профиля (некритичная):', profileErr);
+            }
+            
+            // Создаем запись в Firestore
+            if (!window.firebase || !window.firebase.firestore) {
+                throw new Error('Firebase Firestore не инициализирован');
+            }
+            
+            // Устанавливаем пробную подписку на 14 дней при регистрации
+            const trialEnd = new Date();
+            trialEnd.setDate(trialEnd.getDate() + 14);
 
-        // Отправляем код и информацию на серверную функцию для отправки письма
-        try {
-            const response = await fetch('/.netlify/functions/send-email', {
+            // Сохраняем профиль пользователя с retry logic
+            let profileSaveRetries = 0;
+            while (profileSaveRetries < 3) {
+                try {
+                    await db.collection('users').doc(user.uid).set({
+                        uid: user.uid,
+                        name: name,
+                        email: email,
+                        emailVerified: false,
+                        subscription: 'trial',
+                        trialEndDate: trialEnd.toISOString(),
+                        subscriptionActive: true,
+                        profileComplete: true,
+                        createdAt: window.firebase && window.firebase.firestore
+                            ? window.firebase.firestore.FieldValue.serverTimestamp()
+                            : new Date().toISOString(),
+                        lastLogin: window.firebase && window.firebase.firestore
+                            ? window.firebase.firestore.FieldValue.serverTimestamp()
+                            : new Date().toISOString()
+                    });
+                    console.log('✅ Профиль пользователя сохранен в Firestore');
+                    break;
+                } catch (firestoreError) {
+                    profileSaveRetries++;
+                    if (profileSaveRetries >= 3) {
+                        throw new Error('Не удалось сохранить профиль пользователя: ' + firestoreError.message);
+                    }
+                    console.warn(`⚠️ Попытка ${profileSaveRetries} сохранения профиля не удалась, повторяем...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            
+            // Генерируем код подтверждения (6 цифр)
+            const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+            
+            // Сохраняем код истечения на клиенте и отправляем запрос серверу для отправки email
+            const codeExpiresAt = new Date();
+            codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
+
+            console.log('✅ Код подтверждения сгенерирован:', verificationCode);
+
+            // Сохраняем код в Firestore
+            try {
+                await db.collection('verificationCodes').doc(user.uid).set({
+                    code: verificationCode,
+                    email: email,
+                    userId: user.uid,
+                    expiresAt: codeExpiresAt.toISOString(),
+                    attempts: 0,
+                    createdAt: window.firebase && window.firebase.firestore
+                        ? window.firebase.firestore.FieldValue.serverTimestamp()
+                        : new Date().toISOString()
+                });
+                console.log('✅ Код верификации сохранен в Firestore');
+            } catch (firestoreError) {
+                console.error('⚠️ Ошибка сохранения кода в Firestore:', firestoreError);
+                throw new Error('Не удалось сохранить код верификации');
+            }
+
+            // Отправляем код и информацию на серверную функцию для отправки письма
+            const emailResponse = await fetch('/.netlify/functions/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -125,32 +161,41 @@ async function registerUser(name, email, password) {
                 })
             });
 
-            if (response.ok) {
-                console.log('✅ Код отправлен на почту (через сервер)');
+            if (!emailResponse.ok) {
+                const errorText = await emailResponse.text();
+                console.error('⚠️ Ошибка отправки кода на почту:', emailResponse.status, errorText);
+                // Email отправка некритична - продолжаем процесс
             } else {
-                const txt = await response.text();
-                console.warn('⚠️ Ошибка отправки кода (сервер):', response.status, txt);
+                console.log('✅ Код отправлен на почту');
             }
-        } catch (emailError) {
-            console.error('⚠️ Ошибка при отправке email:', emailError);
-            throw new Error('Не удалось отправить письмо с кодом верификации. Попробуйте позже.');
+            
+            console.log('✅ Пользователь успешно зарегистрирован:', user.uid);
+            
+            // Сохраняем userId с пространством имен для избежания конфликтов
+            if (!window._registrationState) {
+                window._registrationState = {};
+            }
+            window._registrationState.userId = user.uid;
+            window._registrationState.email = email;
+            
+            return { success: true, user, requiresVerification: true };
+
+        } catch (error) {
+            console.error('❌ Ошибка регистрации (попытка ' + (retryCount + 1) + '):', error);
+            
+            // Retry logic для определенных типов ошибок
+            if ((error.code === 'network-error' || error.code === 'auth/network-request-failed') && retryCount < MAX_RETRIES - 1) {
+                retryCount++;
+                console.log(`🔄 Повторная попытка регистрации через 2 сек...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return attemptRegistration();
+            }
+            
+            throw handleAuthError(error);
         }
-        
-        console.log('✅ Пользователь зарегистрирован:', user.uid);
-        
-        // Сохраняем userId с пространством имен для избежания конфликтов
-        if (!window._registrationState) {
-            window._registrationState = {};
-        }
-        window._registrationState.userId = user.uid;
-        window._registrationState.email = email;
-        
-        return { success: true, user, requiresVerification: true };
-        
-    } catch (error) {
-        console.error('❌ Ошибка регистрации:', error);
-        throw handleAuthError(error);
     }
+    
+    return attemptRegistration();
 }
 
 // Вход пользователя
