@@ -41,41 +41,13 @@ exports.handler = async function(event, context) {
 
         console.log(`📧 Попытка отправки кода верификации на ${to_email} (тип: ${type})`);
 
-        // В режиме разработки - логируем и сохраняем код в Firestore для локального тестирования
+        // В режиме разработки - логируем код
         if (process.env.NODE_ENV !== 'production') {
             console.log('🔧 РЕЖИМ РАЗРАБОТКИ: Email будет отправлен на:', to_email);
             console.log('📌 Код верификации:', verification_code);
             console.log('⏰ Срок действия:', expires_at);
 
-            // Сохраняем код на сервере для демо-режима
-            if (user_id) {
-                try {
-                    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-                    if (serviceAccountJson) {
-                        const admin = require('firebase-admin');
-                        if (!admin.apps.length) {
-                            admin.initializeApp({
-                                credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
-                                databaseURL: process.env.FIREBASE_DATABASE_URL
-                            });
-                        }
-                        const db = admin.firestore();
-
-                        await db.collection('verificationCodes').doc(user_id).set({
-                            code: verification_code,
-                            email: to_email,
-                            userId: user_id,
-                            expiresAt: expires_at,
-                            attempts: 0,
-                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                            type: type
-                        });
-                        console.log(`✅ Код верификации сохранен в Firestore для пользователя ${user_id}`);
-                    }
-                } catch (demoStoreErr) {
-                    console.error('⚠️ Ошибка сохранения кода в демо-режиме:', demoStoreErr);
-                }
-            }
+            // Код уже сохранен в auth.js на клиенте, не дублируем на сервере
 
             return {
                 statusCode: 200,

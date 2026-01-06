@@ -138,9 +138,12 @@ async function registerUser(name, email, password) {
         
         console.log('✅ Пользователь зарегистрирован:', user.uid);
         
-        // Сохраняем userId для проверки кода позже
-        window.registrationUserId = user.uid;
-        window.registrationEmail = email;
+        // Сохраняем userId с пространством имен для избежания конфликтов
+        if (!window._registrationState) {
+            window._registrationState = {};
+        }
+        window._registrationState.userId = user.uid;
+        window._registrationState.email = email;
         
         return { success: true, user, requiresVerification: true };
         

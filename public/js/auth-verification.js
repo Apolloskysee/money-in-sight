@@ -62,12 +62,12 @@ function goBackToRegistration() {
 
 async function resendVerificationCode() {
     try {
-        const email = window.registrationEmail;
+        const email = window._registrationState?.email;
         if (!email) throw new Error('Email не найден');
 
         // Generate new code and send
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const userId = window.registrationUserId;
+        const userId = window._registrationState?.userId;
         
         if (!userId) throw new Error('User ID не найден');
 
@@ -76,6 +76,11 @@ async function resendVerificationCode() {
         // Update code in Firestore
         const codeExpiresAt = new Date();
         codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
+        
+        // Проверяем Firebase перед использованием
+        if (!window.firebase || !window.firebase.firestore) {
+            throw new Error('Firebase Firestore не инициализирован');
+        }
         
         await db.collection('verificationCodes').doc(userId).set({
             code: verificationCode,
@@ -141,7 +146,7 @@ async function handleVerificationSubmit(e) {
             return;
         }
 
-        const userId = window.registrationUserId;
+        const userId = window._registrationState?.userId;
         if (!userId) throw new Error('User ID не найден');
 
         const { db } = window.firebaseApp.getFirebaseServices();
@@ -187,15 +192,19 @@ async function handleVerificationSubmit(e) {
         }
 
         // Code is correct! Mark email as verified
-        const firebase = window.firebase;
         const auth = window.firebaseApp.getFirebaseServices().auth;
+        
+        // Проверяем Firebase перед использованием
+        if (!window.firebase || !window.firebase.firestore) {
+            throw new Error('Firebase Firestore не инициализирован');
+        }
         
         // Update user in Firestore
         await db.collection('users').doc(userId).update({
             emailVerified: true,
             verificationStatus: 'verified',
-            verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            verifiedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
 
         // Delete the code
