@@ -473,57 +473,7 @@ function resetModalForms(modalId) {
 }
 
 // Настройка форм
-function setupForms() {
-    
-    // Форма регистрации
-    const registerForm = document.getElementById('registerForm');
-    if (registerForm) {
-        registerForm.addEventListener('submit', handleRegisterSubmit);
-    }
-     const debtForm = document.getElementById('debtForm');
-    if (debtForm) {
-        debtForm.addEventListener('submit', handleDebtSubmit);
-    }
 
-    // Форма входа
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) {
-        loginForm.addEventListener('submit', handleLoginSubmit);
-    }
-    
-    // Форма добавления транзакции
-    const transactionForm = document.getElementById('transactionForm');
-    if (transactionForm) {
-        transactionForm.addEventListener('submit', handleTransactionSubmit);
-    }
-    
-    // Форма добавления цели
-    const goalForm = document.getElementById('goalForm');
-    if (goalForm) {
-        goalForm.addEventListener('submit', handleGoalSubmit);
-    }
-    
-    // Форма добавления задачи
-    const taskForm = document.getElementById('taskForm');
-    if (taskForm) {
-        taskForm.addEventListener('submit', handleTaskSubmit);
-    }
-    
-    // Форма оплаты
-    const paymentForm = document.getElementById('paymentForm');
-    if (paymentForm) {
-        paymentForm.addEventListener('submit', (e) => {
-            if (window.Payments && window.Payments.handlePaymentSubmit) {
-                window.Payments.handlePaymentSubmit(e);
-            } else {
-                console.warn('⚠️ Модуль платежей ещё не загружен');
-            }
-        });
-    }
-
-    
-
-}
 
 // Инициализация формы транзакции
 function initializeTransactionForm() {

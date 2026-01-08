@@ -76,7 +76,7 @@ async function initializeAuth() {
 }
 
 // Регистрация нового пользователя
-// auth.js - Исправленная функция регистрации
+
 async function registerUser(name, email, password) {
     const MAX_RETRIES = 3;
     let retryCount = 0;
@@ -86,6 +86,13 @@ async function registerUser(name, email, password) {
             const { auth, db } = window.firebaseApp.getFirebaseServices();
             
             console.log('✨ Регистрация пользователя:', email);
+            
+            // Проверяем, что Firebase Firestore доступен
+            if (!window.firebase || !window.firebase.firestore) {
+                throw new Error('Firebase Firestore не инициализирован');
+            }
+            
+            const firestore = window.firebase.firestore;
             
             // Создаем пользователя в Firebase Auth
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
@@ -114,8 +121,8 @@ async function registerUser(name, email, password) {
                 trialEndDate: trialEnd.toISOString(),
                 subscriptionActive: true,
                 profileComplete: true,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastLogin: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: firestore.FieldValue.serverTimestamp(),
+                lastLogin: firestore.FieldValue.serverTimestamp()
             });
             
             // Генерируем наш код для письма
@@ -130,7 +137,7 @@ async function registerUser(name, email, password) {
                 userId: user.uid,
                 expiresAt: codeExpiresAt.toISOString(),
                 attempts: 0,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: firestore.FieldValue.serverTimestamp()
             });
 
             // Отправляем код на email
@@ -148,14 +155,17 @@ async function registerUser(name, email, password) {
             });
 
             if (!emailResponse.ok) {
-                console.error('⚠️ Ошибка отправки письма');
+                const errorText = await emailResponse.text();
+                console.error('⚠️ Ошибка отправки письма:', emailResponse.status, errorText);
+                // Не прерываем регистрацию, продолжаем
             }
             
             // Сохраняем состояние для верификации
             window._registrationState = {
                 userId: user.uid,
                 email: email,
-                user: user
+                user: user,
+                password: password // Сохраняем для автоматического входа после верификации
             };
             
             return { 

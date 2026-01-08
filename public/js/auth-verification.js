@@ -144,7 +144,12 @@ async function handleVerificationSubmit(e) {
     
     // Валидация кода
     if (!enteredCode || enteredCode.length !== 6 || !/^\d+$/.test(enteredCode)) {
-        ModalManager.showNotification('Введите корректный 6-значный код', 'error');
+        // Используем window.ModalManager вместо ModalManager
+        if (window.ModalManager) {
+            window.ModalManager.showNotification('Введите корректный 6-значный код', 'error');
+        } else if (window.UI) {
+            window.UI.showNotification('Введите корректный 6-значный код', 'error');
+        }
         return;
     }
     
@@ -160,6 +165,13 @@ async function handleVerificationSubmit(e) {
         }
         
         const { db, auth } = window.firebaseApp.getFirebaseServices();
+        
+        // Проверяем, что Firebase Firestore доступен
+        if (!window.firebase || !window.firebase.firestore) {
+            throw new Error('Firebase Firestore не инициализирован');
+        }
+        
+        const firestore = window.firebase.firestore;
         
         // Получаем сохраненный код
         const codeDoc = await db.collection('verificationCodes').doc(userId).get();
@@ -195,8 +207,8 @@ async function handleVerificationSubmit(e) {
         // 1. Обновляем emailVerified в Firestore
         await db.collection('users').doc(userId).update({
             emailVerified: true,
-            verifiedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            verifiedAt: firestore.FieldValue.serverTimestamp(),
+            updatedAt: firestore.FieldValue.serverTimestamp()
         });
         
         // 2. Удаляем использованный код
@@ -212,17 +224,23 @@ async function handleVerificationSubmit(e) {
         closeEmailVerificationModal();
         
         // 5. Показываем успешное сообщение
-        ModalManager.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
+        if (window.ModalManager) {
+            window.ModalManager.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
+        } else if (window.UI) {
+            window.UI.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
+        }
         
-        // 6. Входим в систему
+        // 6. Входим в систему автоматически
         if (window._registrationState?.email && window._registrationState?.password) {
             try {
                 await auth.signInWithEmailAndPassword(
                     window._registrationState.email,
                     window._registrationState.password
                 );
+                console.log('✅ Автоматический вход выполнен');
             } catch (loginError) {
-                console.log('Автовход не удался, продолжаем...');
+                console.log('⚠️ Автовход не удался:', loginError.message);
+                // Не прерываем процесс, пользователь может войти вручную
             }
         }
         
@@ -241,7 +259,13 @@ async function handleVerificationSubmit(e) {
         
     } catch (error) {
         console.error('Ошибка верификации:', error);
-        ModalManager.showNotification(error.message, 'error');
+        
+        // Показываем ошибку
+        if (window.ModalManager) {
+            window.ModalManager.showNotification(error.message, 'error');
+        } else if (window.UI) {
+            window.UI.showNotification(error.message, 'error');
+        }
         
         // Очищаем поле ввода при ошибке
         codeInput.value = '';
