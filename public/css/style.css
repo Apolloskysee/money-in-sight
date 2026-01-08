@@ -1627,3 +1627,204 @@ input:checked + .slider:before {
         border: 1px solid #ddd !important;
     }
 }
+
+/* ======== ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ ВЕРИФИКАЦИИ ======== */
+
+/* Модальное окно верификации */
+#emailVerificationModal .modal-content {
+    max-width: 450px;
+}
+
+#verificationForm .form-control {
+    text-align: center;
+    font-size: 1.5rem;
+    letter-spacing: 8px;
+    padding: 12px;
+    font-family: monospace;
+    font-weight: bold;
+}
+
+/* Стили для email в верификации */
+.email-highlight {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 600;
+    padding: 0 5px;
+}
+
+/* Секция повторной отправки */
+.resend-section {
+    background: rgba(102, 126, 234, 0.05);
+    padding: 15px;
+    border-radius: var(--border-radius);
+    margin: 20px 0;
+    text-align: center;
+    border: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+.resend-section p {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+#resendCodeBtn {
+    background: none;
+    border: none;
+    color: var(--primary);
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0 5px;
+    text-decoration: underline;
+}
+
+#resendCodeBtn:disabled {
+    color: var(--gray);
+    cursor: not-allowed;
+    text-decoration: none;
+}
+
+/* Таймер */
+.countdown-timer {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: bold;
+    color: var(--primary);
+    background: rgba(102, 126, 234, 0.1);
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+}
+
+/* Кнопки действий верификации */
+.verification-actions {
+    display: flex;
+    gap: 15px;
+    margin: 25px 0;
+}
+
+.verification-actions .btn-primary {
+    flex: 2;
+}
+
+.verification-actions .btn-outline {
+    flex: 1;
+}
+
+/* Сообщение о статусе отправки */
+.send-status {
+    text-align: center;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+}
+
+.send-status.success {
+    background: rgba(72, 187, 120, 0.1);
+    color: var(--success);
+    border: 1px solid var(--success);
+}
+
+.send-status.error {
+    background: rgba(245, 101, 101, 0.1);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+/* Загрузка при отправке кода */
+.sending-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius);
+    z-index: 10;
+}
+
+/* Анимация для кода верификации */
+@keyframes pulseCode {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+#verificationCode:focus {
+    animation: pulseCode 2s infinite;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Стили для иконки конверта */
+.email-icon {
+    font-size: 4rem;
+    margin: 20px auto;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: block;
+    width: 80px;
+    height: 80px;
+    text-align: center;
+    line-height: 80px;
+}
+
+/* Адаптивные стили для верификации */
+@media (max-width: 576px) {
+    #verificationForm .form-control {
+        font-size: 1.2rem;
+        letter-spacing: 5px;
+        padding: 10px;
+    }
+    
+    .verification-actions {
+        flex-direction: column;
+    }
+    
+    .verification-actions .btn-primary,
+    .verification-actions .btn-outline {
+        width: 100%;
+    }
+}
+
+/* Анимация появления кода */
+@keyframes codeAppear {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#verificationCode {
+    animation: codeAppear 0.3s ease-out;
+}
+
+/* Стили для спиннера загрузки */
+.spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--primary);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

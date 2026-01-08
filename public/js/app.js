@@ -22,11 +22,231 @@ async function initializeApp() {
         // Настраиваем глобальные обработчики
         setupGlobalHandlers();
         
+        // Настраиваем обработчики для регистрации и входа
+        setupAuthHandlers();
+        
         console.log('✅ Приложение успешно загружено');
         
     } catch (error) {
         console.error('❌ Ошибка загрузки приложения:', error);
         showCriticalError('Не удалось загрузить приложение. Пожалуйста, обновите страницу.');
+    }
+}
+
+// Настройка обработчиков для аутентификации
+function setupAuthHandlers() {
+    console.log('🔐 Настройка обработчиков аутентификации...');
+    
+    // 1. Кнопки "Начать бесплатно" на главной странице
+    const registerButtons = [
+        document.getElementById('registerBtn'),
+        document.getElementById('welcomeRegisterBtn')
+    ];
+    
+    registerButtons.forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.UI.openModal('registerModal');
+            });
+        }
+    });
+    
+    // 2. Кнопки "Войти" на главной странице
+    const loginButtons = [
+        document.getElementById('loginBtn'),
+        document.getElementById('welcomeLoginBtn')
+    ];
+    
+    loginButtons.forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.UI.openModal('loginModal');
+            });
+        }
+    });
+    
+    // 3. Форма регистрации
+    const registerForm = document.getElementById('registerForm');
+    if (registerForm) {
+        registerForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await handleRegistration();
+        });
+    }
+    
+    // 4. Форма входа
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await handleLogin();
+        });
+    }
+    
+    // 5. Кнопка выхода в хедере
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            await handleLogout();
+        });
+    }
+    
+    // 6. Ссылки "Войти" и "Зарегистрироваться" в модалках
+    const loginLink = document.querySelector('a[href="#"][onclick*="loginModal"]');
+    if (loginLink) {
+        loginLink.onclick = function(e) {
+            e.preventDefault();
+            window.UI.closeModal('registerModal');
+            window.UI.openModal('loginModal');
+        };
+    }
+    
+    const registerLink = document.querySelector('a[href="#"][onclick*="registerModal"]');
+    if (registerLink) {
+        registerLink.onclick = function(e) {
+            e.preventDefault();
+            window.UI.closeModal('loginModal');
+            window.UI.openModal('registerModal');
+        };
+    }
+    
+    console.log('✅ Обработчики аутентификации настроены');
+}
+
+// Обработчик регистрации
+async function handleRegistration() {
+    const name = document.getElementById('registerName')?.value.trim();
+    const email = document.getElementById('registerEmail')?.value.trim();
+    const password = document.getElementById('registerPassword')?.value;
+    const agreeTerms = document.getElementById('agreeTerms')?.checked;
+    
+    // Валидация
+    if (!name || !email || !password) {
+        window.UI.showNotification('Заполните все поля', 'error');
+        return;
+    }
+    
+    if (!agreeTerms) {
+        window.UI.showNotification('Примите условия использования', 'error');
+        return;
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        window.UI.showNotification('Неверный формат email', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        window.UI.showNotification('Пароль должен содержать минимум 6 символов', 'error');
+        return;
+    }
+    
+    const submitBtn = document.querySelector('#registerForm button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    
+    try {
+        // Показываем индикатор загрузки
+        submitBtn.innerHTML = '<div class="spinner"></div> Регистрация...';
+        submitBtn.disabled = true;
+        
+        console.log('📝 Регистрация пользователя:', email);
+        
+        // Используем функцию из auth.js
+        const result = await window.Auth.registerUser(name, email, password);
+        
+        if (result.success && result.requiresVerification) {
+            // Сохраняем пароль для автоматического входа после верификации
+            if (!window._registrationState) {
+                window._registrationState = {};
+            }
+            window._registrationState.password = password;
+            
+            // Закрываем окно регистрации
+            window.UI.closeModal('registerModal');
+            
+            // Показываем уведомление
+            window.UI.showNotification('Код подтверждения отправлен на ваш email', 'success');
+            
+            // Открываем окно верификации
+            setTimeout(() => {
+                if (typeof openEmailVerificationModal === 'function') {
+                    openEmailVerificationModal(email);
+                }
+            }, 500);
+        }
+        
+    } catch (error) {
+        console.error('❌ Ошибка регистрации:', error);
+        window.UI.showNotification(error.message, 'error');
+        
+        // Очищаем поле пароля при ошибке
+        const passwordField = document.getElementById('registerPassword');
+        if (passwordField) passwordField.value = '';
+        
+    } finally {
+        // Восстанавливаем кнопку
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+// Обработчик входа
+async function handleLogin() {
+    const email = document.getElementById('loginEmail')?.value.trim();
+    const password = document.getElementById('loginPassword')?.value;
+    
+    // Валидация
+    if (!email || !password) {
+        window.UI.showNotification('Заполните все поля', 'error');
+        return;
+    }
+    
+    const submitBtn = document.querySelector('#loginForm button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    
+    try {
+        // Показываем индикатор загрузки
+        submitBtn.innerHTML = '<div class="spinner"></div> Вход...';
+        submitBtn.disabled = true;
+        
+        console.log('🔐 Попытка входа:', email);
+        
+        // Используем функцию из auth.js
+        await window.Auth.loginUser(email, password);
+        
+        // Закрываем модальное окно
+        window.UI.closeModal('loginModal');
+        
+        // Показываем уведомление
+        window.UI.showNotification('Вход выполнен успешно!', 'success');
+        
+    } catch (error) {
+        console.error('❌ Ошибка входа:', error);
+        window.UI.showNotification(error.message, 'error');
+        
+        // Очищаем поле пароля при ошибке
+        const passwordField = document.getElementById('loginPassword');
+        if (passwordField) passwordField.value = '';
+        
+    } finally {
+        // Восстанавливаем кнопку
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+// Обработчик выхода
+async function handleLogout() {
+    try {
+        await window.Auth.logoutUser();
+        window.UI.showNotification('Вы успешно вышли из системы', 'success');
+    } catch (error) {
+        console.error('❌ Ошибка выхода:', error);
+        window.UI.showNotification('Ошибка при выходе', 'error');
     }
 }
 
@@ -105,3 +325,10 @@ function showCriticalError(message) {
 
 // Запуск приложения при загрузке страницы
 document.addEventListener('DOMContentLoaded', initializeApp);
+
+// Экспорт функций для глобального использования
+window.handleLogout = handleLogout;
+window.handleLogin = handleLogin;
+window.handleRegistration = handleRegistration;
+
+console.log('📦 app.js загружен');

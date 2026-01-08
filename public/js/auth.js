@@ -76,6 +76,7 @@ async function initializeAuth() {
 }
 
 // Регистрация нового пользователя
+// auth.js - Исправленная функция регистрации
 async function registerUser(name, email, password) {
     const MAX_RETRIES = 3;
     let retryCount = 0;
@@ -84,22 +85,7 @@ async function registerUser(name, email, password) {
         try {
             const { auth, db } = window.firebaseApp.getFirebaseServices();
             
-            console.log('✨ Регистрация пользователя:', email, `(попытка ${retryCount + 1}/${MAX_RETRIES})`);
-            
-            // Устанавливаем флаг "идет регистрация" - это предотвращает автоматический показ приложения
-            if (!window._registrationState) {
-                window._registrationState = {};
-            }
-            window._registrationState.inProgress = true;
-            
-            // Проверяем, существует ли пользователь с таким email
-            try {
-                await auth.fetchSignInMethodsForEmail(email);
-            } catch (err) {
-                if (err.code === 'auth/invalid-email') {
-                    throw new Error('Некорректный формат email');
-                }
-            }
+            console.log('✨ Регистрация пользователя:', email);
             
             // Создаем пользователя в Firebase Auth
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
@@ -108,83 +94,46 @@ async function registerUser(name, email, password) {
             console.log('✅ Пользователь создан в Auth:', user.uid);
             
             // Обновляем имя пользователя
-            try {
-                await user.updateProfile({
-                    displayName: name
-                });
-            } catch (profileErr) {
-                console.warn('⚠️ Ошибка обновления профиля (некритичная):', profileErr);
-            }
+            await user.updateProfile({
+                displayName: name
+            });
+            
+            // Отправляем email verification от Firebase
+            await user.sendEmailVerification();
             
             // Создаем запись в Firestore
-            if (!window.firebase || !window.firebase.firestore) {
-                throw new Error('Firebase Firestore не инициализирован');
-            }
-            
-            // Устанавливаем пробную подписку на 14 дней при регистрации
             const trialEnd = new Date();
             trialEnd.setDate(trialEnd.getDate() + 14);
 
-            // Сохраняем профиль пользователя с retry logic
-            let profileSaveRetries = 0;
-            while (profileSaveRetries < 3) {
-                try {
-                    await db.collection('users').doc(user.uid).set({
-                        uid: user.uid,
-                        name: name,
-                        email: email,
-                        emailVerified: false,
-                        subscription: 'trial',
-                        trialEndDate: trialEnd.toISOString(),
-                        subscriptionActive: true,
-                        profileComplete: true,
-                        createdAt: window.firebase && window.firebase.firestore
-                            ? window.firebase.firestore.FieldValue.serverTimestamp()
-                            : new Date().toISOString(),
-                        lastLogin: window.firebase && window.firebase.firestore
-                            ? window.firebase.firestore.FieldValue.serverTimestamp()
-                            : new Date().toISOString()
-                    });
-                    console.log('✅ Профиль пользователя сохранен в Firestore');
-                    break;
-                } catch (firestoreError) {
-                    profileSaveRetries++;
-                    if (profileSaveRetries >= 3) {
-                        throw new Error('Не удалось сохранить профиль пользователя: ' + firestoreError.message);
-                    }
-                    console.warn(`⚠️ Попытка ${profileSaveRetries} сохранения профиля не удалась, повторяем...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
+            await db.collection('users').doc(user.uid).set({
+                uid: user.uid,
+                name: name,
+                email: email,
+                emailVerified: false,
+                subscription: 'trial',
+                trialEndDate: trialEnd.toISOString(),
+                subscriptionActive: true,
+                profileComplete: true,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastLogin: admin.firestore.FieldValue.serverTimestamp()
+            });
             
-            // Генерируем код подтверждения (6 цифр)
+            // Генерируем наш код для письма
             const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-            
-            // Сохраняем код истечения на клиенте и отправляем запрос серверу для отправки email
             const codeExpiresAt = new Date();
             codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 10);
 
-            console.log('✅ Код подтверждения сгенерирован:', verificationCode);
-
             // Сохраняем код в Firestore
-            try {
-                await db.collection('verificationCodes').doc(user.uid).set({
-                    code: verificationCode,
-                    email: email,
-                    userId: user.uid,
-                    expiresAt: codeExpiresAt.toISOString(),
-                    attempts: 0,
-                    createdAt: window.firebase && window.firebase.firestore
-                        ? window.firebase.firestore.FieldValue.serverTimestamp()
-                        : new Date().toISOString()
-                });
-                console.log('✅ Код верификации сохранен в Firestore');
-            } catch (firestoreError) {
-                console.error('⚠️ Ошибка сохранения кода в Firestore:', firestoreError);
-                throw new Error('Не удалось сохранить код верификации');
-            }
+            await db.collection('verificationCodes').doc(user.uid).set({
+                code: verificationCode,
+                email: email,
+                userId: user.uid,
+                expiresAt: codeExpiresAt.toISOString(),
+                attempts: 0,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
 
-            // Отправляем код и информацию на серверную функцию для отправки письма
+            // Отправляем код на email
             const emailResponse = await fetch('/.netlify/functions/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -199,45 +148,24 @@ async function registerUser(name, email, password) {
             });
 
             if (!emailResponse.ok) {
-                const errorText = await emailResponse.text();
-                console.error('⚠️ Ошибка отправки кода на почту:', emailResponse.status, errorText);
-                // Email отправка некритична - продолжаем процесс
-            } else {
-                console.log('✅ Код отправлен на почту');
+                console.error('⚠️ Ошибка отправки письма');
             }
             
-            console.log('✅ Пользователь успешно зарегистрирован:', user.uid);
+            // Сохраняем состояние для верификации
+            window._registrationState = {
+                userId: user.uid,
+                email: email,
+                user: user
+            };
             
-            // ВАЖНО: Логаутим пользователя сразу после регистрации
-            // Он должен войти только после верификации email
-            try {
-                await auth.signOut();
-                console.log('🚪 Пользователь логаутен - требуется верификация email');
-            } catch (logoutErr) {
-                console.warn('⚠️ Ошибка при логауте (некритичная):', logoutErr);
-            }
-            
-            // Сохраняем информацию для верификации
-            if (!window._registrationState) {
-                window._registrationState = {};
-            }
-            window._registrationState.userId = user.uid;
-            window._registrationState.email = email;
-            window._registrationState.inProgress = false;  // Очищаем флаг завершения регистрации
-            
-            return { success: true, user, requiresVerification: true };
+            return { 
+                success: true, 
+                user,
+                requiresVerification: true 
+            };
 
         } catch (error) {
-            console.error('❌ Ошибка регистрации (попытка ' + (retryCount + 1) + '):', error);
-            
-            // Retry logic для определенных типов ошибок
-            if ((error.code === 'network-error' || error.code === 'auth/network-request-failed') && retryCount < MAX_RETRIES - 1) {
-                retryCount++;
-                console.log(`🔄 Повторная попытка регистрации через 2 сек...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                return attemptRegistration();
-            }
-            
+            console.error('❌ Ошибка регистрации:', error);
             throw handleAuthError(error);
         }
     }
@@ -544,6 +472,189 @@ function showWelcome() {
     }
 }
 
+
+async function handleRegistrationWithUI(name, email, password) {
+    try {
+        console.log('🚀 Начало регистрации с UI:', email);
+        
+        // Валидация
+        if (!name || !email || !password) {
+            throw new Error('Заполните все поля');
+        }
+        
+        if (password.length < 6) {
+            throw new Error('Пароль должен содержать минимум 6 символов');
+        }
+        
+        // Кнопка загрузки
+        const submitBtn = document.querySelector('#registerForm button[type="submit"]');
+        const originalText = submitBtn ? submitBtn.textContent : 'Начать 14 дней бесплатно';
+        
+        if (submitBtn) {
+            submitBtn.innerHTML = '<div class="spinner"></div> Регистрация...';
+            submitBtn.disabled = true;
+        }
+        
+        const result = await registerUser(name, email, password);
+        
+        if (result.success && result.requiresVerification) {
+            // Закрываем окно регистрации
+            ModalManager.closeModal('registerModal');
+            
+            // Показываем окно верификации
+            setTimeout(() => {
+                if (typeof openEmailVerificationModal === 'function') {
+                    openEmailVerificationModal(email);
+                }
+                ModalManager.showNotification('Код подтверждения отправлен на ваш email', 'success');
+            }, 500);
+        }
+        
+        return result;
+        
+    } catch (error) {
+        console.error('❌ Ошибка регистрации с UI:', error);
+        ModalManager.showNotification(error.message, 'error');
+        throw error;
+    } finally {
+        // Восстанавливаем кнопку
+        const submitBtn = document.querySelector('#registerForm button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.textContent = 'Начать 14 дней бесплатно';
+            submitBtn.disabled = false;
+        }
+    }
+}
+
+
+// Функция для очистки неподтвержденных пользователей
+async function cleanupUnverifiedUsers() {
+    try {
+        const { auth, db } = window.firebaseApp.getFirebaseServices();
+        const admin = require('firebase-admin');
+        
+        console.log('🧹 Начинаем очистку неподтвержденных пользователей...');
+        
+        // 1. Получаем текущего пользователя (если есть)
+        const currentUser = auth.currentUser;
+        
+        // 2. Получаем всех пользователей из Firestore
+        const usersSnapshot = await db.collection('users').get();
+        
+        let deletedCount = 0;
+        let keptCount = 0;
+        
+        // 3. Проверяем каждого пользователя
+        for (const userDoc of usersSnapshot.docs) {
+            const userData = userDoc.data();
+            const userId = userDoc.id;
+            
+            // Если email не подтвержден и прошло более 24 часов
+            if (userData.emailVerified === false) {
+                const createdAt = userData.createdAt;
+                const now = new Date();
+                const hoursDiff = createdAt ? 
+                    (now - (createdAt.toDate ? createdAt.toDate() : new Date(createdAt))) / (1000 * 60 * 60) 
+                    : 999; // Если нет даты создания, считаем старым
+                
+                if (hoursDiff > 24) {
+                    try {
+                        // Удаляем из Firestore
+                        await db.collection('users').doc(userId).delete();
+                        
+                        // Удаляем код верификации
+                        await db.collection('verificationCodes').doc(userId).delete()
+                            .catch(() => console.log('Код верификации не найден'));
+                        
+                        // Удаляем из Firebase Auth (только для старых записей)
+                        if (hoursDiff > 24 * 7) { // Старше недели
+                            try {
+                                await admin.auth().deleteUser(userId);
+                                console.log(`🗑️ Удален пользователь ${userId} из Auth`);
+                            } catch (authError) {
+                                console.log(`⚠️ Не удалось удалить из Auth: ${userId}`);
+                            }
+                        }
+                        
+                        deletedCount++;
+                        console.log(`🗑️ Удален неподтвержденный пользователь: ${userData.email} (${hoursDiff.toFixed(1)} часов)`);
+                        
+                    } catch (deleteError) {
+                        console.error(`❌ Ошибка удаления пользователя ${userId}:`, deleteError);
+                    }
+                } else {
+                    keptCount++;
+                    console.log(`⏳ Оставляем пользователя ${userData.email} (${hoursDiff.toFixed(1)} часов)`);
+                }
+            } else {
+                keptCount++;
+            }
+        }
+        
+        console.log(`✅ Очистка завершена. Удалено: ${deletedCount}, Оставлено: ${keptCount}`);
+        
+        return { deleted: deletedCount, kept: keptCount };
+        
+    } catch (error) {
+        console.error('❌ Ошибка при очистке пользователей:', error);
+        throw error;
+    }
+}
+
+// Функция для массового удаления старых неподтвержденных пользователей
+async function batchDeleteUnverifiedUsers() {
+    try {
+        const { db, auth } = window.firebaseApp.getFirebaseServices();
+        const firebase = window.firebase;
+        
+        console.log('🚨 Начинаем массовое удаление старых неподтвержденных пользователей...');
+        
+        // Получаем всех пользователей с emailVerified = false
+        const usersSnapshot = await db.collection('users')
+            .where('emailVerified', '==', false)
+            .get();
+        
+        console.log(`📊 Найдено ${usersSnapshot.size} неподтвержденных пользователей`);
+        
+        const batch = db.batch();
+        let count = 0;
+        
+        usersSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+            count++;
+        });
+        
+        // Удаляем коды верификации для этих пользователей
+        const codesSnapshot = await db.collection('verificationCodes').get();
+        codesSnapshot.docs.forEach(doc => {
+            const userId = doc.id;
+            if (usersSnapshot.docs.find(u => u.id === userId)) {
+                batch.delete(doc.ref);
+            }
+        });
+        
+        // Выполняем batch
+        if (count > 0) {
+            await batch.commit();
+            console.log(`✅ Массово удалено ${count} неподтвержденных пользователей и их коды`);
+            
+            // Показываем уведомление
+            if (window.UI && window.UI.showNotification) {
+                window.UI.showNotification(`Удалено ${count} старых неподтвержденных пользователей`, 'info');
+            }
+        } else {
+            console.log('✅ Неподтвержденных пользователей не найдено');
+        }
+        
+        return { deleted: count };
+        
+    } catch (error) {
+        console.error('❌ Ошибка массового удаления:', error);
+        throw error;
+    }
+}
+
+
 // Экспорт функций
 window.Auth = {
     initializeAuth,
@@ -551,5 +662,6 @@ window.Auth = {
     loginUser,
     logoutUser,
     updateUserProfile,
-    getCurrentUser: () => currentUser
+    getCurrentUser: () => currentUser,
+    handleRegistrationWithUI
 };

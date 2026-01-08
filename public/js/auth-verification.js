@@ -134,114 +134,123 @@ async function resendVerificationCode() {
 
 async function handleVerificationSubmit(e) {
     e.preventDefault();
+    
+    const codeInput = document.getElementById('verificationCode');
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    
+    if (!codeInput) return;
+    
+    const enteredCode = codeInput.value.trim();
+    
+    // Валидация кода
+    if (!enteredCode || enteredCode.length !== 6 || !/^\d+$/.test(enteredCode)) {
+        ModalManager.showNotification('Введите корректный 6-значный код', 'error');
+        return;
+    }
+    
+    // Сохраняем оригинальный текст кнопки
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<div class="spinner"></div> Проверка...';
+    submitBtn.disabled = true;
+    
     try {
-        const codeInput = document.getElementById('verificationCode');
-        if (!codeInput) throw new Error('Поле кода не найдено');
-
-        const enteredCode = codeInput.value.trim();
-        if (!enteredCode || enteredCode.length !== 6) {
-            if (window.UI && window.UI.showNotification) {
-                window.UI.showNotification('Пожалуйста, введите корректный 6-значный код', 'error');
-            }
-            return;
-        }
-
         const userId = window._registrationState?.userId;
-        if (!userId) throw new Error('User ID не найден');
-
-        const { db } = window.firebaseApp.getFirebaseServices();
+        if (!userId) {
+            throw new Error('Сессия истекла. Пожалуйста, зарегистрируйтесь снова.');
+        }
         
-        // Get the stored code from Firestore
+        const { db, auth } = window.firebaseApp.getFirebaseServices();
+        
+        // Получаем сохраненный код
         const codeDoc = await db.collection('verificationCodes').doc(userId).get();
         
         if (!codeDoc.exists) {
-            throw new Error('Код подтверждения не найден. Попробуйте переотправить код.');
+            throw new Error('Код не найден. Запросите новый код.');
         }
-
+        
         const codeData = codeDoc.data();
         
-        // Check if code is expired
+        // Проверка срока действия
         if (new Date(codeData.expiresAt) < new Date()) {
-            // Delete expired code
-            await db.collection('verificationCodes').doc(userId).delete();
-            throw new Error('Код подтверждения истёк. Запросите новый код.');
+            await codeDoc.ref.delete();
+            throw new Error('Срок действия кода истек. Запросите новый код.');
         }
-
-        // Check if code matches
+        
+        // Проверка совпадения кода
         if (codeData.code !== enteredCode) {
-            // Increment failed attempts
             const newAttempts = (codeData.attempts || 0) + 1;
-            if (newAttempts >= 3) {
-                await db.collection('verificationCodes').doc(userId).delete();
-                if (window.UI && window.UI.showNotification) {
-                    window.UI.showNotification('Превышено максимальное число попыток. Перейдите назад и запросите новый код.', 'error');
-                }
-                throw new Error('Превышено максимальное число попыток. Перейдите назад и запросите новый код.');
+            
+            if (newAttempts >= 5) {
+                await codeDoc.ref.delete();
+                throw new Error('Превышено максимальное количество попыток. Зарегистрируйтесь снова.');
             }
             
-            await db.collection('verificationCodes').doc(userId).update({
-                attempts: newAttempts
-            });
+            await codeDoc.ref.update({ attempts: newAttempts });
             
-            const attemptsLeft = 3 - newAttempts;
-            const errorMessage = `Неверный код. Попыток осталось: ${attemptsLeft}`;
-            if (window.UI && window.UI.showNotification) {
-                window.UI.showNotification(errorMessage, 'error');
-            }
-            throw new Error(errorMessage);
-        }
-
-        // Code is correct! Mark email as verified
-        const auth = window.firebaseApp.getFirebaseServices().auth;
-        
-        // Проверяем Firebase перед использованием
-        if (!window.firebase || !window.firebase.firestore) {
-            throw new Error('Firebase Firestore не инициализирован');
+            const attemptsLeft = 5 - newAttempts;
+            throw new Error(`Неверный код. Осталось попыток: ${attemptsLeft}`);
         }
         
-        // Update user in Firestore
+        // Код верный!
+        // 1. Обновляем emailVerified в Firestore
         await db.collection('users').doc(userId).update({
             emailVerified: true,
-            verificationStatus: 'verified',
             verifiedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
-
-        // Delete the code
-        await db.collection('verificationCodes').doc(userId).delete();
-
-        // Close modal
+        
+        // 2. Удаляем использованный код
+        await codeDoc.ref.delete();
+        
+        // 3. Обновляем статус в Firebase Auth
+        const user = auth.currentUser || window._registrationState?.user;
+        if (user) {
+            await user.reload();
+        }
+        
+        // 4. Закрываем модальное окно
         closeEmailVerificationModal();
         
-        if (window.UI && window.UI.showNotification) {
-            window.UI.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
-        }
-
-        // The user should already be signed in via auth.currentUser
-        // Just update the profile and show the app
-        const user = auth.currentUser;
-        if (user) {
+        // 5. Показываем успешное сообщение
+        ModalManager.showNotification('Email успешно подтвержден! Добро пожаловать!', 'success');
+        
+        // 6. Входим в систему
+        if (window._registrationState?.email && window._registrationState?.password) {
             try {
-                await window.Auth.updateUserProfile(user);
-                if (typeof showApp === 'function') showApp();
-                
-                // Load app data
-                if (window.UI && typeof window.UI.loadDashboardData === 'function') {
-                    try { await window.UI.loadDashboardData(); } catch (e) { console.error('Ошибка загрузки дашборда', e); }
-                }
-                if (window.UI && typeof window.UI.loadProfileData === 'function') {
-                    try { await window.UI.loadProfileData(); } catch (e) { console.error('Ошибка загрузки профиля', e); }
-                }
-            } catch (err) {
-                console.error('Ошибка обновления профиля:', err);
+                await auth.signInWithEmailAndPassword(
+                    window._registrationState.email,
+                    window._registrationState.password
+                );
+            } catch (loginError) {
+                console.log('Автовход не удался, продолжаем...');
             }
         }
-
+        
+        // 7. Показываем приложение
+        setTimeout(() => {
+            if (typeof showApp === 'function') showApp();
+            
+            // Загружаем данные пользователя
+            if (window.UI && window.UI.loadDashboardData) {
+                window.UI.loadDashboardData();
+            }
+            
+            // Перенаправляем в дашборд
+            window.location.hash = '#dashboard';
+        }, 1000);
+        
     } catch (error) {
-        console.error('Ошибка проверки кода:', error);
-        if (window.UI && window.UI.showNotification) {
-            window.UI.showNotification(error.message || 'Ошибка проверки кода', 'error');
-        }
+        console.error('Ошибка верификации:', error);
+        ModalManager.showNotification(error.message, 'error');
+        
+        // Очищаем поле ввода при ошибке
+        codeInput.value = '';
+        codeInput.focus();
+        
+    } finally {
+        // Восстанавливаем кнопку
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
     }
 }
 
